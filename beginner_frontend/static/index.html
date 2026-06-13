@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Wan2.2 分镜视频工作流</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">ComfyUI 本地分镜流程</p>
+          <h1>Wan2.2 视频工作流</h1>
+        </div>
+        <div class="top-actions">
+          <div class="status-strip" id="statusStrip">
+            <span class="dot muted"></span>
+            <span id="statusText">连接中</span>
+          </div>
+          <div class="mini-stat">
+            <strong>720P</strong>
+            <span>分镜短片</span>
+          </div>
+        </div>
+      </header>
+
+      <section class="workflow">
+        <aside class="stepper" aria-label="分镜工作流步骤">
+          <button class="step-button active" type="button" data-step="environment">
+            <b>1</b>
+            <span>
+              <strong>环境侦测</strong>
+              <small>硬件、系统、模型体检</small>
+            </span>
+          </button>
+          <button class="step-button" type="button" data-step="keyframe">
+            <b>2</b>
+            <span>
+              <strong>关键帧</strong>
+              <small>定人物、场景、构图</small>
+            </span>
+          </button>
+          <button class="step-button" type="button" data-step="draft">
+            <b>3</b>
+            <span>
+              <strong>试镜头</strong>
+              <small>TI2V-5B 快速看动作</small>
+            </span>
+          </button>
+          <button class="step-button" type="button" data-step="final">
+            <b>4</b>
+            <span>
+              <strong>正式片段</strong>
+              <small>A14B 720P 出片</small>
+            </span>
+          </button>
+          <button class="step-button" type="button" data-step="deflicker">
+            <b>5</b>
+            <span>
+              <strong>闪烁修复</strong>
+              <small>稳定曝光和轻微纹理跳动</small>
+            </span>
+          </button>
+          <button class="step-button" type="button" data-step="rife">
+            <b>6</b>
+            <span>
+              <strong>插帧后期</strong>
+              <small>RIFE 2x 更顺滑</small>
+            </span>
+          </button>
+          <button class="step-button" type="button" data-step="upscale">
+            <b>7</b>
+            <span>
+              <strong>清晰度增强</strong>
+              <small>2x 超分提高清晰度</small>
+            </span>
+          </button>
+          <button class="step-button" type="button" data-step="edit">
+            <b>8</b>
+            <span>
+              <strong>拼接剪辑</strong>
+              <small>多镜头合成完整片</small>
+            </span>
+          </button>
+        </aside>
+
+        <form id="generateForm" class="panel editor-panel">
+          <div class="section-title">
+            <div>
+              <h2 id="stepTitle">1. 环境侦测</h2>
+              <p id="stepSubtitle">先确认这台机器适合跑哪一档视频模型。</p>
+            </div>
+            <span id="stepBadge">体检</span>
+          </div>
+
+          <div class="field wide" data-section="summary">
+            <span>当前目标</span>
+            <div class="note" id="stepGoal"></div>
+          </div>
+
+          <div class="form-grid">
+            <div class="field wide hidden" data-section="environment">
+              <div class="environment-board">
+                <div class="env-head">
+                  <div>
+                    <strong>环境体检结果</strong>
+                    <small id="environmentSummary">正在检测系统、GPU、ComfyUI 和模型文件。</small>
+                  </div>
+                  <div class="env-actions">
+                    <button class="secondary" id="detectEnvironmentButton" type="button">重新侦测</button>
+                    <button class="primary" id="installMissingButton" type="button">一键安装缺失项</button>
+                  </div>
+                </div>
+
+                <div class="env-grid" id="environmentCards">
+                  <div class="env-card">
+                    <small>操作系统</small>
+                    <strong>检测中</strong>
+                    <span>请稍候</span>
+                  </div>
+                </div>
+
+                <div class="env-block">
+                  <div class="env-block-title">
+                    <strong>每一步可用模型</strong>
+                    <small>根据当前硬件和文件自动推荐</small>
+                  </div>
+                  <div class="model-recommendations" id="modelRecommendations"></div>
+                </div>
+
+                <div class="env-block">
+                  <div class="env-block-title">
+                    <strong>缺失项</strong>
+                    <small>一键安装只补模型、权重和工作流自定义节点</small>
+                  </div>
+                  <div class="missing-items" id="missingItems"></div>
+                </div>
+
+                <div class="env-block">
+                  <div class="env-block-title">
+                    <strong>低配 / mac 路线</strong>
+                    <small>低显存或 Apple Silicon 可按这里选保守档</small>
+                  </div>
+                  <div class="small-routes" id="smallModelRoutes"></div>
+                </div>
+              </div>
+            </div>
+
+            <label class="field wide hidden" data-section="modelChoice">
+              <span>当前使用模型</span>
+              <select id="modelSelector"></select>
+              <small id="modelChoiceHint">会根据第一步环境侦测自动推荐，也可以手动切换。</small>
+              <div class="workflow-status" id="workflowStatus">等待拉取对应 ComfyUI workflow。</div>
+            </label>
+
+            <label class="field wide" data-section="prompt">
+              <span>画面和镜头 Prompt</span>
+              <textarea id="prompt" name="prompt" rows="5"></textarea>
+              <small>写清主体、场景、光线、镜头运动。Prompt 越像分镜描述，视频越稳定。</small>
+            </label>
+
+            <label class="field wide" data-section="negative">
+              <span>排除内容 Negative Prompt</span>
+              <textarea id="negative" name="negative" rows="3"></textarea>
+              <small>用来压住低质量、变形、水印、字幕、闪烁等问题。</small>
+            </label>
+
+            <label class="field wide" data-section="image">
+              <span>关键帧图片</span>
+              <input id="imageInput" name="image" type="file" accept=".png,.jpg,.jpeg,.webp,.bmp" />
+              <small>推荐先用 Flux/SDXL 生成满意的首帧；不上传时会使用内置示例图。</small>
+            </label>
+
+            <div class="field wide" data-section="keyframePreview">
+              <span>关键帧预览</span>
+              <div class="preview-box" id="keyframePreview">
+                <p>选择图片后会显示预览。</p>
+              </div>
+            </div>
+
+            <label class="field wide hidden" data-section="video">
+              <span>待插帧视频</span>
+              <input id="videoInput" name="video" type="file" accept=".mp4,.mov,.mkv,.webm,.avi" />
+              <small>如果已经完成正片步骤，系统会自动使用正片视频；这里也可以手动上传。</small>
+            </label>
+
+            <div class="field wide hidden" data-section="targetResolution">
+              <span>目标分辨率</span>
+              <div class="resolution-card">
+                <div>
+                  <small>输入视频</small>
+                  <strong id="sourceResolutionText">1280 x 704</strong>
+                </div>
+                <div>
+                  <small id="targetResolutionLabel">2x 输出目标</small>
+                  <strong id="targetResolutionText">2560 x 1408</strong>
+                </div>
+              </div>
+              <small id="targetResolutionNote">清晰度增强会按输入视频实际尺寸做 2x 超分，输出文件会更大。</small>
+            </div>
+
+            <fieldset class="field" data-section="size">
+              <legend>画幅和分辨率</legend>
+              <div class="segmented" id="sizePreset">
+                <button type="button" class="active" data-width="1280" data-height="704">横屏 720P</button>
+                <button type="button" data-width="704" data-height="1280">竖屏 720P</button>
+              </div>
+              <div class="inline-pair">
+                <input id="width" name="width" type="number" value="1280" min="256" max="1536" step="32" />
+                <input id="height" name="height" type="number" value="704" min="256" max="1536" step="32" />
+              </div>
+              <small>横屏适合宣传片和横版剪辑；竖屏适合短视频平台。数值越大，显存和时间越高。</small>
+            </fieldset>
+
+            <fieldset class="field" data-section="duration">
+              <legend>镜头时长</legend>
+              <div class="segmented" id="durationPreset">
+                <button type="button" data-length="49">2 秒</button>
+                <button type="button" class="active" data-length="81">3 秒</button>
+                <button type="button" data-length="121">5 秒</button>
+              </div>
+              <input id="length" name="length" type="number" value="81" min="17" max="241" step="4" />
+              <small>视频帧数约等于时长乘帧率。越长越吃显存，也更容易画面漂移。</small>
+            </fieldset>
+
+            <label class="field" data-section="fps">
+              <span>帧率 FPS</span>
+              <input id="fps" name="fps" type="number" value="24" min="1" max="60" step="1" />
+              <small>24fps 更像电影和广告片。RIFE 2x 会把 24fps 变成 48fps。</small>
+            </label>
+
+            <label class="field" data-section="steps">
+              <span>采样步数 Steps</span>
+              <input id="steps" name="steps" type="number" value="20" min="1" max="80" step="1" />
+              <small>步数越高越慢。TI2V 草稿默认 20；A14B 使用 4 步 LoRA，速度和质量更平衡。</small>
+            </label>
+
+            <label class="field" data-section="cfg">
+              <span>提示词强度 CFG</span>
+              <input id="cfg" name="cfg" type="number" value="5.0" min="0.1" max="20" step="0.1" />
+              <small>数值越高越听 Prompt，但过高容易僵硬或出伪影。A14B 推荐 1.0，TI2V 推荐 5.0。</small>
+            </label>
+
+            <label class="field" data-section="seed">
+              <span>随机种子 Seed</span>
+              <input id="seed" name="seed" type="number" value="-1" />
+              <small>-1 表示每次随机；填固定数字可以复现同一镜头，方便反复微调。</small>
+            </label>
+          </div>
+
+          <input id="mode" name="mode" type="hidden" value="ti2v_5b" />
+          <input id="modelLabel" name="model_label" type="hidden" />
+          <input id="modelProfile" name="model_profile" type="hidden" />
+          <input id="upscaleModel" name="upscale_model" type="hidden" value="RealESRGAN_x2plus.pth" />
+          <input id="upscaleScale" name="upscale_scale" type="hidden" value="2" />
+          <input id="rifeMultiplier" name="rife_multiplier" type="hidden" value="2" />
+          <input id="sourceVideoFilename" name="source_video_filename" type="hidden" />
+          <input id="sourceVideoSubfolder" name="source_video_subfolder" type="hidden" />
+          <input id="sourceVideoType" name="source_video_type" type="hidden" />
+
+          <div class="actions">
+            <button class="primary" id="primaryButton" type="button">进入关键帧</button>
+            <button class="secondary" id="validateButton" type="button">检查配置</button>
+            <button class="secondary" id="backButton" type="button">上一步</button>
+          </div>
+        </form>
+
+        <section class="panel result-panel">
+          <div class="section-title">
+            <div>
+              <h2>结果和下一步</h2>
+              <p id="resultHint">每一步完成后，点击继续进入下一步。</p>
+            </div>
+            <span id="jobStatus">空闲</span>
+          </div>
+          <div class="job-meta" id="jobMeta">
+            <span>等待操作</span>
+          </div>
+          <div class="progress-shell">
+            <div class="progress-bar" id="progressBar"></div>
+          </div>
+          <div class="monitor">
+            <div class="monitor-bar">
+              <span>Preview</span>
+              <i></i>
+            </div>
+            <div class="result-view" id="resultView">
+              <p>输出视频会显示在这里。</p>
+            </div>
+          </div>
+          <div class="next-row">
+            <button class="primary hidden" id="continueButton" type="button">继续下一步</button>
+            <button class="secondary hidden" id="repeatButton" type="button">重跑当前步</button>
+          </div>
+          <div class="log-box" id="logBox"></div>
+        </section>
+      </section>
+
+      <footer class="signature">created by zlk 2026</footer>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
