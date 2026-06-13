@@ -11,6 +11,7 @@
 - 前端本机输出路径已改为根据 `COMFY_BASE_DIR` / 环境侦测结果动态显示。
 - 后端支持 `COMFY_BASE_DIR`，不再强依赖项目必须位于某个固定盘符路径。
 - 统一入口 `START_WORKFLOW.py` 会把 `COMFY_BASE_DIR` 和 `COMFY_URL` 传给前端服务。
+- 前端第一步支持检测、安装/更新和启动 ComfyUI。
 - 模型选择会同步生成对应 ComfyUI API workflow，并在提交前预检。
 - GitHub 上传目录加入 `.gitignore`，防止误传模型、输出、缓存和媒体文件。
 - GitHub 上传目录加入 `requirements.txt` 和通用 README。

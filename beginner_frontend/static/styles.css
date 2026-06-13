@@ -375,6 +375,17 @@ h2 {
   gap: 10px;
 }
 
+.bootstrap-console {
+  display: grid;
+  gap: 10px;
+}
+
+.bootstrap-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
+  gap: 10px;
+}
+
 .env-card {
   display: grid;
   gap: 7px;

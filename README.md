@@ -1,6 +1,8 @@
 # Wan2.2 Local Video Workflow
 
-一个面向小白的本地 AI 视频工作流前端，主线是：
+一个面向小白的本地 AI 视频工作流前端。设计目标是：先启动本前端，然后在前端里完成 ComfyUI 安装/启动、节点安装、模型下载和工作流生成。
+
+主线是：
 
 1. 环境侦测
 2. 关键帧
@@ -44,6 +46,12 @@ ComfyUI-base/
 
 如果你的项目不在这个位置，可以设置 `COMFY_BASE_DIR` 指向 ComfyUI 用户/base 目录。
 
+也可以设置 `COMFY_INSTALL_DIR` 指向 ComfyUI 源码安装目录；不设置时默认是：
+
+```text
+<COMFY_BASE_DIR>/ComfyUI
+```
+
 ## 环境要求
 
 - Python 3.10+
@@ -86,6 +94,78 @@ macOS / Linux：
 
 如果你已经有 ComfyUI 自带的 Python 环境，也可以直接用那个 Python 启动前端。
 
+## 先启动前端
+
+你只需要先让这个前端跑起来。即使 ComfyUI 没安装或没启动，前端也能打开，并在第一步里提示怎么装。
+
+Windows PowerShell：
+
+```powershell
+.\START_WORKFLOW.ps1
+```
+
+macOS / Linux：
+
+```bash
+chmod +x ./START_WORKFLOW.command
+./START_WORKFLOW.command
+```
+
+或直接：
+
+```bash
+python START_WORKFLOW.py
+```
+
+启动后打开：
+
+```text
+http://127.0.0.1:7860
+```
+
+如果 ComfyUI 计划使用非默认地址：
+
+```bash
+COMFY_URL=http://127.0.0.1:8188 python START_WORKFLOW.py
+```
+
+Windows PowerShell：
+
+```powershell
+$env:COMFY_URL="http://127.0.0.1:8188"
+.\START_WORKFLOW.ps1
+```
+
+## 在前端里安装/启动 ComfyUI
+
+进入前端后，第一步 `环境侦测` 里会显示 `ComfyUI 安装与启动`。
+
+你可以直接在页面里操作：
+
+1. 点击 `安装/更新 ComfyUI`：会 clone/update ComfyUI，创建 `.venv`，安装 PyTorch 和 ComfyUI 依赖。
+2. 点击 `启动 ComfyUI`：会用安装好的 ComfyUI 启动本地服务。
+3. 点击 `一键安装缺失项`：安装工作流需要的自定义节点、Wan2.2 模型、RIFE、超分权重。
+4. 安装节点或模型后，重启 ComfyUI。
+
+安装 ComfyUI 使用的脚本是：
+
+```text
+scripts/install_comfyui.py
+```
+
+默认 PyTorch 后端为 `auto`：
+
+- Windows/Linux：默认走 CUDA 安装。
+- macOS：默认走 MPS/普通 PyTorch 安装。
+
+高级用户也可以手动运行：
+
+```bash
+python scripts/install_comfyui.py --base-dir "<COMFY_BASE_DIR>" --install-dir "<COMFY_INSTALL_DIR>" --backend auto
+```
+
+`--backend` 可选：`auto`、`cuda`、`cpu`、`mps`、`skip`。
+
 ## 下载模型和工作流资产
 
 先确认 `COMFY_BASE_DIR` 指向 ComfyUI 用户/base 目录。项目放在 base 目录子文件夹时可以不设置。
@@ -120,63 +200,16 @@ export COMFY_BASE_DIR="$HOME/ComfyUI"
 
 下载完成后，重启 ComfyUI，让模型列表和自定义节点重新加载。
 
-## 启动
-
-先启动 ComfyUI，并确认浏览器能打开：
-
-```text
-http://127.0.0.1:8000
-```
-
-然后启动本项目。
-
-Windows PowerShell：
-
-```powershell
-.\START_WORKFLOW.ps1
-```
-
-macOS / Linux：
-
-```bash
-chmod +x ./START_WORKFLOW.command
-./START_WORKFLOW.command
-```
-
-或直接：
-
-```bash
-python START_WORKFLOW.py
-```
-
-启动后打开：
-
-```text
-http://127.0.0.1:7860
-```
-
-如果 ComfyUI 不在默认地址：
-
-```bash
-COMFY_URL=http://127.0.0.1:8188 python START_WORKFLOW.py
-```
-
-Windows PowerShell：
-
-```powershell
-$env:COMFY_URL="http://127.0.0.1:8188"
-.\START_WORKFLOW.ps1
-```
-
 ## 使用流程
 
-1. 打开前端后先看 `环境侦测`。
-2. 如果缺模型或节点，点击 `一键安装缺失项`，安装后重启 ComfyUI。
-3. 在 `关键帧` 上传或确认首帧图片。
-4. 用 `TI2V-5B` 生成草稿。
-5. 用 `I2V-A14B` 或其他自选档生成正式片段。
-6. 视情况做闪烁修复、RIFE 插帧、清晰度增强。
-7. 多个 3-6 秒镜头导入剪映、DaVinci Resolve 或 Premiere Pro 拼接。
+1. 启动前端。
+2. 在 `环境侦测` 中安装/启动 ComfyUI。
+3. 点击 `一键安装缺失项` 补齐模型、节点和后期权重。
+4. 在 `关键帧` 上传或确认首帧图片。
+5. 用 `TI2V-5B` 生成草稿。
+6. 用 `I2V-A14B` 或其他自选档生成正式片段。
+7. 视情况做闪烁修复、RIFE 插帧、清晰度增强。
+8. 多个 3-6 秒镜头导入剪映、DaVinci Resolve 或 Premiere Pro 拼接。
 
 输出默认保存到：
 

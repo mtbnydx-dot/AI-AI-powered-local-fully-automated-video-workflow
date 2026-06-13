@@ -282,6 +282,10 @@ const environmentCards = document.querySelector("#environmentCards");
 const modelRecommendations = document.querySelector("#modelRecommendations");
 const missingItems = document.querySelector("#missingItems");
 const smallModelRoutes = document.querySelector("#smallModelRoutes");
+const bootstrapCards = document.querySelector("#bootstrapCards");
+const refreshBootstrapButton = document.querySelector("#refreshBootstrapButton");
+const installComfyButton = document.querySelector("#installComfyButton");
+const startComfyButton = document.querySelector("#startComfyButton");
 const detectEnvironmentButton = document.querySelector("#detectEnvironmentButton");
 const installMissingButton = document.querySelector("#installMissingButton");
 const modelSelector = document.querySelector("#modelSelector");
@@ -321,6 +325,8 @@ let selectedModels = {};
 let currentVideoFps = 24;
 let workflowCheckController = null;
 let workflowPreflightTimer = null;
+let bootstrapData = null;
+let bootstrapPollTimer = null;
 
 function currentStep() {
   return steps[activeIndex];
@@ -369,6 +375,7 @@ function setStep(stepId) {
   updateVideoSource();
   renderStepIdle();
   if (step.id === "environment") {
+    loadBootstrap();
     loadEnvironment();
   }
 }
@@ -803,6 +810,109 @@ function renderMissingItems(data) {
       `,
     )
     .join("");
+}
+
+function renderBootstrap(data) {
+  bootstrapData = data;
+  if (!bootstrapCards) return;
+  const cards = [
+    {
+      label: "ComfyUI 连接",
+      value: data.comfy_connected ? "已连接" : "未连接",
+      detail: data.comfy_connected ? data.comfy_url : data.comfy_error || data.comfy_url,
+      state: data.comfy_connected ? "ok" : "blocked",
+    },
+    {
+      label: "ComfyUI 源码",
+      value: data.comfy_repo_exists ? "已安装" : "未安装",
+      detail: data.install_dir || "-",
+      state: data.comfy_repo_exists ? "ok" : "warn",
+    },
+    {
+      label: "运行环境",
+      value: data.venv_ready ? "venv 就绪" : "venv 未就绪",
+      detail: data.venv_python || "-",
+      state: data.venv_ready ? "ok" : "warn",
+    },
+    {
+      label: "Git",
+      value: data.git_ready ? "可用" : "未检测到",
+      detail: data.git_ready ? "可安装/更新 ComfyUI" : "请先安装 Git",
+      state: data.git_ready ? "ok" : "blocked",
+    },
+  ];
+  bootstrapCards.innerHTML = cards
+    .map(
+      (card) => `
+        <div class="env-card ${card.state}">
+          <small>${escapeHtml(card.label)}</small>
+          <strong>${escapeHtml(card.value)}</strong>
+          <span>${escapeHtml(card.detail)}</span>
+        </div>
+      `,
+    )
+    .join("");
+  installComfyButton.disabled = !data.can_install_comfyui;
+  startComfyButton.disabled = !data.can_start_comfyui && !data.comfy_connected;
+}
+
+async function loadBootstrap() {
+  if (!bootstrapCards) return;
+  refreshBootstrapButton.disabled = true;
+  try {
+    const response = await fetch("/api/bootstrap");
+    const data = await response.json();
+    if (!response.ok) throw new Error(formatError(data.detail || data));
+    renderBootstrap(data);
+  } catch (error) {
+    bootstrapCards.innerHTML = `<div class="env-card blocked"><small>ComfyUI 安装状态</small><strong>检测失败</strong><span>${escapeHtml(error.message)}</span></div>`;
+    appendLog(`ComfyUI 安装状态检测失败：${error.message}`);
+  } finally {
+    refreshBootstrapButton.disabled = false;
+  }
+}
+
+async function startBootstrapJob(url, button, confirmText) {
+  if (confirmText && !window.confirm(confirmText)) return;
+  button.disabled = true;
+  setLog("正在启动后台任务。");
+  try {
+    const response = await fetch(url, { method: "POST" });
+    const job = await response.json();
+    if (!response.ok) throw new Error(formatError(job.detail || job));
+    pollBootstrapJob(job.id);
+    if (bootstrapPollTimer) clearInterval(bootstrapPollTimer);
+    bootstrapPollTimer = window.setInterval(() => pollBootstrapJob(job.id), 2500);
+  } catch (error) {
+    appendLog(`后台任务启动失败：${error.message}`);
+    button.disabled = false;
+  }
+}
+
+async function pollBootstrapJob(jobId) {
+  try {
+    const response = await fetch(`/api/install/${jobId}`);
+    const job = await response.json();
+    if (!response.ok) throw new Error(formatError(job.detail || job));
+    setLog((job.log || []).join("\n"));
+    await loadBootstrap();
+    if (job.completed || job.status === "success" || job.status === "failed" || job.status === "stopped") {
+      if (bootstrapPollTimer) {
+        clearInterval(bootstrapPollTimer);
+        bootstrapPollTimer = null;
+      }
+      installComfyButton.disabled = !(bootstrapData && bootstrapData.can_install_comfyui);
+      startComfyButton.disabled = !(bootstrapData && (bootstrapData.can_start_comfyui || bootstrapData.comfy_connected));
+      await loadEnvironment();
+    }
+  } catch (error) {
+    if (bootstrapPollTimer) {
+      clearInterval(bootstrapPollTimer);
+      bootstrapPollTimer = null;
+    }
+    appendLog(`后台任务轮询失败：${error.message}`);
+    await loadBootstrap();
+  }
 }
 
 function renderSmallModelRoutes(data) {
@@ -1265,6 +1375,17 @@ primaryButton.addEventListener("click", handlePrimary);
 validateButton.addEventListener("click", validateSetup);
 detectEnvironmentButton.addEventListener("click", loadEnvironment);
 installMissingButton.addEventListener("click", startInstall);
+refreshBootstrapButton.addEventListener("click", loadBootstrap);
+installComfyButton.addEventListener("click", () =>
+  startBootstrapJob(
+    "/api/bootstrap/install-comfyui?backend=auto",
+    installComfyButton,
+    "将安装或更新 ComfyUI，并创建 venv、安装 PyTorch 和 ComfyUI 依赖。这个过程可能下载数 GB 文件，是否继续？",
+  ),
+);
+startComfyButton.addEventListener("click", () =>
+  startBootstrapJob("/api/bootstrap/start-comfyui", startComfyButton, ""),
+);
 modelSelector.addEventListener("change", () => {
   selectedModels[currentStep().id] = modelSelector.value;
   syncSelectedModel({ applyDefaults: true });

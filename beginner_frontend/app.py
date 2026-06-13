@@ -13,7 +13,7 @@ import time
 import uuid
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 import httpx
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -32,6 +32,7 @@ STATIC_DIR = APP_DIR / "static"
 
 COMFY_URL = os.environ.get("COMFY_URL", "http://127.0.0.1:8000").rstrip("/")
 CLIENT_ID = f"beginner-frontend-{uuid.uuid4()}"
+COMFY_INSTALL_DIR = Path(os.environ.get("COMFY_INSTALL_DIR", BASE_DIR / "ComfyUI")).expanduser().resolve()
 
 DEFAULT_IMAGE = "wan22_sample_esports_keyframe.png"
 DEFAULT_PROMPT = (
@@ -51,6 +52,7 @@ VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm", ".avi"}
 
 JOBS: dict[str, dict[str, Any]] = {}
 INSTALL_JOBS: dict[str, dict[str, Any]] = {}
+COMFY_PROCESS: subprocess.Popen[str] | None = None
 
 
 app = FastAPI(title="Wan2.2 Beginner Frontend")
@@ -1821,6 +1823,85 @@ def run_install_worker(job_id: str, command: list[str]) -> None:
         job["log"].append(f"安装失败：{exc}")
 
 
+def comfy_venv_python() -> Path:
+    if platform.system() == "Windows":
+        return COMFY_INSTALL_DIR / ".venv" / "Scripts" / "python.exe"
+    return COMFY_INSTALL_DIR / ".venv" / "bin" / "python"
+
+
+def comfy_port() -> int:
+    parsed = urlparse(COMFY_URL)
+    if parsed.port:
+        return int(parsed.port)
+    return 8000
+
+
+def comfy_listen_host() -> str:
+    parsed = urlparse(COMFY_URL)
+    return parsed.hostname or "127.0.0.1"
+
+
+def bootstrap_status_payload(comfy_connected: bool, comfy_error: str = "") -> dict[str, Any]:
+    main_py = COMFY_INSTALL_DIR / "main.py"
+    python = comfy_venv_python()
+    return {
+        "base_dir": str(BASE_DIR),
+        "install_dir": str(COMFY_INSTALL_DIR),
+        "comfy_url": COMFY_URL,
+        "comfy_connected": comfy_connected,
+        "comfy_error": comfy_error,
+        "comfy_repo_exists": main_py.exists(),
+        "comfy_main": str(main_py),
+        "venv_python": str(python),
+        "venv_ready": python.exists(),
+        "git_ready": bool(shutil.which("git")),
+        "python": sys.version.split()[0],
+        "platform": platform.system(),
+        "can_install_comfyui": bool(shutil.which("git")),
+        "can_start_comfyui": main_py.exists() and python.exists(),
+        "running_from_launcher": True,
+    }
+
+
+def run_comfyui_worker(job_id: str, command: list[str]) -> None:
+    global COMFY_PROCESS
+    job = INSTALL_JOBS[job_id]
+    job["status"] = "running"
+    job["started_at"] = now_ms()
+    job["log"].append(f"启动 ComfyUI：{install_command_text(command)}")
+    creationflags = 0
+    if platform.system() == "Windows":
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    try:
+        COMFY_PROCESS = subprocess.Popen(
+            command,
+            cwd=str(COMFY_INSTALL_DIR),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            creationflags=creationflags,
+        )
+        assert COMFY_PROCESS.stdout is not None
+        for line in COMFY_PROCESS.stdout:
+            job["log"].append(line.rstrip())
+            if len(job["log"]) > 600:
+                job["log"] = job["log"][-600:]
+        return_code = COMFY_PROCESS.wait()
+        job["return_code"] = return_code
+        job["status"] = "stopped" if return_code == 0 else "failed"
+        job["completed"] = True
+        job["finished_at"] = now_ms()
+        job["log"].append(f"ComfyUI 已退出，退出码：{return_code}")
+    except Exception as exc:
+        job["status"] = "failed"
+        job["completed"] = True
+        job["finished_at"] = now_ms()
+        job["error"] = str(exc)
+        job["log"].append(f"ComfyUI 启动失败：{exc}")
+
+
 def run_deflicker(source: Path) -> dict[str, Any]:
     if source.suffix.lower() not in VIDEO_EXTENSIONS:
         raise HTTPException(status_code=400, detail="闪烁修复只支持视频文件")
@@ -1999,6 +2080,124 @@ async def environment() -> dict[str, Any]:
         "blocked": blocked,
         "install_note": "一键安装会下载缺失模型、RIFE/超分权重，并补齐两个 ComfyUI 自定义节点仓库；安装后需要重启 ComfyUI。",
     }
+
+
+@app.get("/api/bootstrap")
+async def bootstrap_status() -> dict[str, Any]:
+    try:
+        await comfy_get("/system_stats")
+        return bootstrap_status_payload(True)
+    except HTTPException as exc:
+        return bootstrap_status_payload(False, str(exc.detail))
+
+
+@app.post("/api/bootstrap/install-comfyui")
+async def install_comfyui(backend: str = "auto") -> dict[str, Any]:
+    if backend not in {"auto", "cuda", "cpu", "mps", "skip"}:
+        raise HTTPException(status_code=400, detail="未知 PyTorch 后端")
+    job_id = uuid.uuid4().hex
+    job = {
+        "id": job_id,
+        "kind": "install_comfyui",
+        "status": "queued",
+        "completed": False,
+        "created_at": now_ms(),
+        "log": [],
+    }
+    INSTALL_JOBS[job_id] = job
+    script = WORKSPACE_DIR / "scripts" / "install_comfyui.py"
+    if not script.exists():
+        job["status"] = "failed"
+        job["completed"] = True
+        job["finished_at"] = now_ms()
+        job["log"].append(f"安装脚本不存在：{script}")
+        return job
+    command = [
+        sys.executable,
+        "-u",
+        str(script),
+        "--base-dir",
+        str(BASE_DIR),
+        "--install-dir",
+        str(COMFY_INSTALL_DIR),
+        "--backend",
+        backend,
+    ]
+    job["command"] = install_command_text(command)
+    thread = threading.Thread(target=run_install_worker, args=(job_id, command), daemon=True)
+    thread.start()
+    return job
+
+
+@app.post("/api/bootstrap/start-comfyui")
+async def start_comfyui() -> dict[str, Any]:
+    global COMFY_PROCESS
+    try:
+        await comfy_get("/system_stats")
+        job_id = uuid.uuid4().hex
+        job = {
+            "id": job_id,
+            "kind": "start_comfyui",
+            "status": "success",
+            "completed": True,
+            "created_at": now_ms(),
+            "finished_at": now_ms(),
+            "log": [f"ComfyUI 已在运行：{COMFY_URL}"],
+        }
+        INSTALL_JOBS[job_id] = job
+        return job
+    except HTTPException:
+        pass
+
+    main_py = COMFY_INSTALL_DIR / "main.py"
+    python = comfy_venv_python()
+    if not main_py.exists():
+        raise HTTPException(status_code=400, detail=f"ComfyUI 未安装：{main_py}")
+    if not python.exists():
+        raise HTTPException(status_code=400, detail=f"ComfyUI venv 未就绪：{python}")
+    if COMFY_PROCESS and COMFY_PROCESS.poll() is None:
+        job_id = uuid.uuid4().hex
+        job = {
+            "id": job_id,
+            "kind": "start_comfyui",
+            "status": "running",
+            "completed": False,
+            "created_at": now_ms(),
+            "log": ["ComfyUI 启动进程已经在运行。"],
+        }
+        INSTALL_JOBS[job_id] = job
+        return job
+
+    command = [
+        str(python),
+        str(main_py),
+        "--listen",
+        comfy_listen_host(),
+        "--port",
+        str(comfy_port()),
+        "--base-directory",
+        str(BASE_DIR),
+        "--input-directory",
+        str(INPUT_DIR),
+        "--output-directory",
+        str(OUTPUT_DIR),
+        "--user-directory",
+        str(BASE_DIR / "user"),
+    ]
+    job_id = uuid.uuid4().hex
+    job = {
+        "id": job_id,
+        "kind": "start_comfyui",
+        "status": "queued",
+        "completed": False,
+        "created_at": now_ms(),
+        "log": [],
+        "command": install_command_text(command),
+    }
+    INSTALL_JOBS[job_id] = job
+    thread = threading.Thread(target=run_comfyui_worker, args=(job_id, command), daemon=True)
+    thread.start()
+    return job
 
 
 @app.post("/api/install")
