@@ -98,6 +98,15 @@ def ensure_base_dirs(base_dir: Path) -> None:
         (base_dir / name).mkdir(parents=True, exist_ok=True)
 
 
+def ensure_supported_python() -> None:
+    if not ((3, 10) <= sys.version_info[:2] <= (3, 12)):
+        version = ".".join(str(part) for part in sys.version_info[:3])
+        raise RuntimeError(
+            f"Python {version} is not supported for this installer. "
+            "Use Python 3.10, 3.11, or 3.12 for ComfyUI/PyTorch."
+        )
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Install or update ComfyUI for the local video workflow.")
     parser.add_argument("--base-dir", type=Path, required=True)
@@ -112,6 +121,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    ensure_supported_python()
     args = parse_args()
     base_dir = args.base_dir.expanduser().resolve()
     install_dir = args.install_dir.expanduser().resolve()

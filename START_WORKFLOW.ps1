@@ -2,7 +2,11 @@ $ErrorActionPreference = "Stop"
 
 $workspace = Split-Path -Parent $MyInvocation.MyCommand.Path
 $baseDir = Split-Path -Parent $workspace
-$python = Join-Path $baseDir ".venv\Scripts\python.exe"
+$python = Join-Path $workspace ".venv\Scripts\python.exe"
+
+if (-not (Test-Path -LiteralPath $python)) {
+    $python = Join-Path $baseDir ".venv\Scripts\python.exe"
+}
 
 if (-not (Test-Path -LiteralPath $python)) {
     $python = "python"

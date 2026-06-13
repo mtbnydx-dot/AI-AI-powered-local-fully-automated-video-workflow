@@ -109,7 +109,7 @@
                   </div>
                   <div class="env-actions">
                     <button class="secondary" id="detectEnvironmentButton" type="button">重新侦测</button>
-                    <button class="primary" id="installMissingButton" type="button">一键安装缺失项</button>
+                    <button class="primary" id="installMissingButton" type="button">一键安装/修复缺失项</button>
                   </div>
                 </div>
 
@@ -142,6 +142,14 @@
                     <small>根据当前硬件和文件自动推荐</small>
                   </div>
                   <div class="model-recommendations" id="modelRecommendations"></div>
+                </div>
+
+                <div class="env-block">
+                  <div class="env-block-title">
+                    <strong>加载诊断</strong>
+                    <small>检查下载目录、节点依赖和 ComfyUI 模型列表</small>
+                  </div>
+                  <div class="load-diagnostics" id="loadDiagnostics"></div>
                 </div>
 
                 <div class="env-block">

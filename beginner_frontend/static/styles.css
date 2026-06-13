@@ -451,6 +451,7 @@ h2 {
 }
 
 .model-recommendations,
+.load-diagnostics,
 .missing-items,
 .small-routes {
   display: grid;
@@ -525,6 +526,72 @@ h2 {
   border: 1px solid #f0d0a2;
   border-radius: 8px;
   background: #fff8ed;
+}
+
+.path-stack {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid #cfd9de;
+  border-radius: 8px;
+  background: #f7fafb;
+}
+
+.path-row {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 10px;
+  align-items: baseline;
+}
+
+.path-row small {
+  color: #64747a;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.path-row span {
+  min-width: 0;
+  color: #26343a;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.diagnostic-row {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid #d7e0e3;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.diagnostic-row.ok {
+  border-color: #bfe0d9;
+  background: #f4fcf9;
+}
+
+.diagnostic-row.warn {
+  border-color: #efd19c;
+  background: #fff8ed;
+}
+
+.diagnostic-row.blocked {
+  border-color: #efb4ad;
+  background: #fff3f1;
+}
+
+.diagnostic-row strong {
+  color: #203035;
+  font-size: 13px;
+}
+
+.diagnostic-row small {
+  color: #5c6c72;
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .route-row {

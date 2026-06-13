@@ -450,7 +450,7 @@
               ]
             },
             "widgets_values": [
-              "Wan2.2\\wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors",
+              "Wan2.2/wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors",
               "default"
             ]
           },
@@ -512,7 +512,7 @@
               ]
             },
             "widgets_values": [
-              "Wan2.2\\wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors",
+              "Wan2.2/wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors",
               "default"
             ]
           },
@@ -579,7 +579,7 @@
               ]
             },
             "widgets_values": [
-              "Wan2.2\\wan2.2_t2v_lightx2v_4steps_lora_v1.1_high_noise.safetensors",
+              "Wan2.2/wan2.2_t2v_lightx2v_4steps_lora_v1.1_high_noise.safetensors",
               1.0000000000000002
             ]
           },
@@ -646,7 +646,7 @@
               ]
             },
             "widgets_values": [
-              "Wan2.2\\wan2.2_t2v_lightx2v_4steps_lora_v1.1_low_noise.safetensors",
+              "Wan2.2/wan2.2_t2v_lightx2v_4steps_lora_v1.1_low_noise.safetensors",
               1.0000000000000002
             ]
           },

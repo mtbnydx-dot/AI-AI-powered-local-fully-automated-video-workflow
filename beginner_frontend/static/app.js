@@ -280,6 +280,7 @@ const targetResolutionNote = document.querySelector("#targetResolutionNote");
 const environmentSummary = document.querySelector("#environmentSummary");
 const environmentCards = document.querySelector("#environmentCards");
 const modelRecommendations = document.querySelector("#modelRecommendations");
+const loadDiagnostics = document.querySelector("#loadDiagnostics");
 const missingItems = document.querySelector("#missingItems");
 const smallModelRoutes = document.querySelector("#smallModelRoutes");
 const bootstrapCards = document.querySelector("#bootstrapCards");
@@ -528,6 +529,28 @@ function formatGb(value) {
   return `${Number(value).toFixed(Number(value) >= 10 ? 0 : 1)} GB`;
 }
 
+function platformStrategyLabel(strategy) {
+  const labels = {
+    cuda_wan_workflow: "CUDA Wan 主线",
+    mac_mps: "Mac MPS 视频路线",
+    mac_post_only: "Mac 后期/轻量路线",
+    post_only: "后期处理路线",
+  };
+  return labels[strategy] || strategy || "未识别";
+}
+
+function macTierLabel(tier) {
+  const labels = {
+    mac_ltx_low: "LTX 低档",
+    mac_ltx_balanced: "LTX 均衡档",
+    mac_ltx_quality: "LTX 质量档",
+    mac_wan5b_480p: "Wan5B 480P 实验",
+    mac_wan5b_720p_experimental: "Wan5B 720P 实验",
+    mac_post_only: "后期处理",
+  };
+  return labels[tier] || tier || "-";
+}
+
 function modelOptionsForStep(stepId) {
   return (
     environmentData?.model_options?.options?.[stepId] ||
@@ -683,7 +706,9 @@ async function preflightWorkflow({ quiet = true } = {}) {
       const detail = data.local
         ? "本地处理，无需 ComfyUI 图。"
         : `${data.node_count || 0} 个节点，输出节点 ${data.output_nodes?.join(", ") || "-"}`;
-      setWorkflowStatus("ok", `${data.message} ${detail}`);
+      const warnings = (data.risk_checks || []).filter((item) => item.level === "warn");
+      const warningText = warnings.length ? ` 提醒：${warnings.map((item) => item.title || item.message).join("、")}` : "";
+      setWorkflowStatus(warnings.length ? "pending" : "ok", `${data.message} ${detail}${warningText}`);
       return true;
     }
     const message = (data.errors || []).join("；") || data.message || "workflow 预检失败";
@@ -709,7 +734,9 @@ function scheduleWorkflowPreflight() {
 function renderEnvironmentCards(data) {
   const os = data.os || {};
   const comfy = data.comfy || {};
+  const paths = data.paths || {};
   const hardware = data.hardware || {};
+  const mac = hardware.mac || {};
   const devices = hardware.devices || [];
   const firstDevice = devices[0] || {};
   const ffmpeg = (data.tools || []).find((item) => item.name === "ffmpeg");
@@ -734,9 +761,17 @@ function renderEnvironmentCards(data) {
     },
     {
       label: "GPU / 显存",
-      value: gpuLabel,
-      detail: `${vramLabel}${hardware.sum_vram_gb ? ` | 总计 ${formatGb(hardware.sum_vram_gb)}` : ""}`,
+      value: mac.is_macos && mac.chip ? mac.chip : gpuLabel,
+      detail: mac.is_macos
+        ? `统一内存 ${formatGb(mac.unified_memory_gb || hardware.system_memory_gb)} | MPS ${hardware.comfy_torch_mps_ready || hardware.front_torch_mps_ready ? "已确认" : "待确认"}`
+        : `${vramLabel}${hardware.sum_vram_gb ? ` | 总计 ${formatGb(hardware.sum_vram_gb)}` : ""}`,
       state: hardware.accelerator === "cpu" ? "blocked" : hardware.max_vram_gb >= 80 ? "ok" : "warn",
+    },
+    {
+      label: "平台策略",
+      value: platformStrategyLabel(hardware.platform_strategy),
+      detail: mac.is_macos ? `${macTierLabel(hardware.mac_video_tier)} | 安装 ${data.install_profile || "auto"}` : `安装 ${data.install_profile || "auto"}`,
+      state: hardware.platform_strategy === "cuda_wan_workflow" || hardware.platform_strategy === "mac_mps" ? "ok" : "warn",
     },
     {
       label: "ComfyUI",
@@ -753,8 +788,14 @@ function renderEnvironmentCards(data) {
     {
       label: "缺失项",
       value: missingCount ? `${missingCount} 项` : "0 项",
-      detail: missingCount ? "可点击一键安装补齐" : "模型和节点已就绪",
+      detail: data.repair_needed ? "可点击一键修复加载问题" : missingCount ? "可点击一键安装补齐" : "模型和节点已就绪",
       state: missingCount ? "warn" : "ok",
+    },
+    {
+      label: "工作目录",
+      value: paths.base_dir_mismatch ? "已跟随 ComfyUI" : "目录一致",
+      detail: paths.active_base_dir || data.base_dir || "-",
+      state: paths.base_dir_mismatch ? "warn" : "ok",
     },
   ];
 
@@ -769,6 +810,45 @@ function renderEnvironmentCards(data) {
       `,
     )
     .join("");
+}
+
+function renderLoadDiagnostics(data) {
+  if (!loadDiagnostics) return;
+  const diagnostics = data.diagnostics || [];
+  if (!diagnostics.length) {
+    loadDiagnostics.innerHTML = `<p class="empty-state">暂无加载诊断结果。</p>`;
+    return;
+  }
+  const paths = data.paths || {};
+  const pathRows = [
+    ["ComfyUI base", paths.active_base_dir || data.base_dir],
+    ["input", paths.input_dir],
+    ["output", paths.output_dir],
+  ]
+    .filter(([, value]) => value)
+    .map(
+      ([label, value]) => `
+        <div class="path-row">
+          <small>${escapeHtml(label)}</small>
+          <span>${escapeHtml(value)}</span>
+        </div>
+      `,
+    )
+    .join("");
+  const diagnosticRows = diagnostics
+    .map(
+      (item) => `
+        <div class="diagnostic-row ${escapeHtml(item.level || "warn")}">
+          <strong>${escapeHtml(item.title || "")}</strong>
+          <small>${escapeHtml(item.message || "")}</small>
+        </div>
+      `,
+    )
+    .join("");
+  loadDiagnostics.innerHTML = `
+    <div class="path-stack">${pathRows}</div>
+    ${diagnosticRows}
+  `;
 }
 
 function renderModelRecommendations(data) {
@@ -827,6 +907,12 @@ function renderBootstrap(data) {
       value: data.comfy_repo_exists ? "已安装" : "未安装",
       detail: data.install_dir || "-",
       state: data.comfy_repo_exists ? "ok" : "warn",
+    },
+    {
+      label: "当前工作目录",
+      value: data.paths?.base_dir_mismatch ? "运行目录不同" : "已确认",
+      detail: data.active_base_dir || data.base_dir || "-",
+      state: data.paths?.base_dir_mismatch ? "warn" : "ok",
     },
     {
       label: "运行环境",
@@ -958,6 +1044,7 @@ function renderEnvironment(data) {
         : "环境有警告，请查看下方建议。";
   renderEnvironmentCards(data);
   renderModelRecommendations(data);
+  renderLoadDiagnostics(data);
   renderMissingItems(data);
   renderSmallModelRoutes(data);
 }
@@ -983,6 +1070,7 @@ async function loadEnvironment() {
     environmentSummary.textContent = "环境侦测失败。";
     environmentCards.innerHTML = `<div class="env-card blocked"><small>错误</small><strong>侦测失败</strong><span>${escapeHtml(error.message)}</span></div>`;
     modelRecommendations.innerHTML = "";
+    if (loadDiagnostics) loadDiagnostics.innerHTML = "";
     missingItems.innerHTML = "";
     if (smallModelRoutes) smallModelRoutes.innerHTML = "";
     setLog(`环境侦测失败：${error.message}`);
@@ -1001,7 +1089,7 @@ async function startInstall() {
     return;
   }
   const confirmed = window.confirm(
-    `将下载或补齐 ${missing.length} 个项目，可能包含几十 GB 模型文件。安装完成后需要重启 ComfyUI。是否继续？`,
+    `将按 ${environmentData?.install_profile || "auto"} 档位安装或修复 ${missing.length} 个项目。若缺少模型，可能下载几十 GB 文件；若只是加载异常，会重新校验文件并安装节点依赖。完成后需要重启 ComfyUI。是否继续？`,
   );
   if (!confirmed) return;
 
@@ -1009,7 +1097,8 @@ async function startInstall() {
   detectEnvironmentButton.disabled = true;
   setLog("正在启动安装任务。");
   try {
-    const response = await fetch("/api/install", { method: "POST" });
+    const profile = encodeURIComponent(environmentData?.install_profile || "auto");
+    const response = await fetch(`/api/install?profile=${profile}`, { method: "POST" });
     const job = await response.json();
     if (!response.ok) throw new Error(formatError(job.detail || job));
     pollInstall(job.id);

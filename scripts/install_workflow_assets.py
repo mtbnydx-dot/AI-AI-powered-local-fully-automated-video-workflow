@@ -19,21 +19,21 @@ USER_AGENT = "wan22-local-video-workflow/1.0"
 
 MODEL_FILES = [
     {
-        "group": "core",
+        "group": "wan5b",
         "name": "wan2.2_ti2v_5B_fp16.safetensors",
         "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_ti2v_5B_fp16.safetensors",
         "dest": "models/diffusion_models/Wan2.2/wan2.2_ti2v_5B_fp16.safetensors",
         "bytes": 9999658848,
     },
     {
-        "group": "core",
+        "group": "a14b_i2v",
         "name": "wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors",
         "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors",
         "dest": "models/diffusion_models/Wan2.2/wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors",
         "bytes": 14294742832,
     },
     {
-        "group": "core",
+        "group": "a14b_i2v",
         "name": "wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors",
         "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors",
         "dest": "models/diffusion_models/Wan2.2/wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors",
@@ -54,25 +54,39 @@ MODEL_FILES = [
         "bytes": 14293923632,
     },
     {
-        "group": "core",
+        "group": "wan_shared",
         "name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
         "url": "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors",
         "dest": "models/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors",
         "bytes": 6735906897,
     },
     {
-        "group": "core",
+        "group": "a14b_shared",
         "name": "wan_2.1_vae.safetensors",
         "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors",
         "dest": "models/vae/wan_2.1_vae.safetensors",
         "bytes": 253815318,
     },
     {
-        "group": "core",
+        "group": "wan5b",
         "name": "wan2.2_vae.safetensors",
         "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/vae/wan2.2_vae.safetensors",
         "dest": "models/vae/wan2.2_vae.safetensors",
         "bytes": 1409400960,
+    },
+    {
+        "group": "ltx",
+        "name": "ltx-video-2b-v0.9.5.safetensors",
+        "url": "https://huggingface.co/Lightricks/LTX-Video/resolve/main/ltx-video-2b-v0.9.5.safetensors",
+        "dest": "models/checkpoints/ltx-video-2b-v0.9.5.safetensors",
+        "bytes": 6340729500,
+    },
+    {
+        "group": "ltx",
+        "name": "t5xxl_fp16.safetensors",
+        "url": "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp16.safetensors",
+        "dest": "models/text_encoders/t5xxl_fp16.safetensors",
+        "bytes": 9787841024,
     },
     {
         "group": "lora",
@@ -140,13 +154,35 @@ CUSTOM_NODE_REPOS = [
 ]
 
 
+PROFILE_GROUPS = {
+    "cuda-full": {"wan5b", "a14b_i2v", "t2v", "wan_shared", "a14b_shared", "lora", "post"},
+    "mac-low": {"ltx"},
+    "mac-balanced": {"ltx"},
+    "mac-wan5b": {"ltx", "wan5b", "wan_shared"},
+    "post-only": {"post"},
+}
+
+PROFILE_CUSTOM_NODES = {
+    "cuda-full": True,
+    "mac-low": False,
+    "mac-balanced": False,
+    "mac-wan5b": False,
+    "post-only": True,
+}
+
+
 def log(message: str) -> None:
     print(message, flush=True)
 
 
-def should_skip(item: dict[str, object], skip_t2v: bool, skip_loras: bool) -> bool:
+def should_skip(item: dict[str, object], profile: str, skip_t2v: bool, skip_loras: bool) -> bool:
     group = item["group"]
-    return (skip_t2v and group == "t2v") or (skip_loras and group == "lora")
+    allowed_groups = PROFILE_GROUPS.get(profile, PROFILE_GROUPS["cuda-full"])
+    return (
+        group not in allowed_groups
+        or (skip_t2v and group == "t2v")
+        or (skip_loras and group == "lora")
+    )
 
 
 def file_state(path: Path, expected_bytes: int) -> str:
@@ -223,7 +259,22 @@ def run(command: list[str], cwd: Path) -> None:
     subprocess.run(command, cwd=str(cwd), check=True)
 
 
-def ensure_custom_nodes(base_dir: Path) -> None:
+def install_node_requirements(requirements: Path, comfy_python: Path | None) -> None:
+    if comfy_python and comfy_python.exists():
+        run([str(comfy_python), "-m", "pip", "install", "-r", str(requirements)], requirements.parent)
+        return
+    log(
+        f"[warn] {requirements.parent.name} has requirements.txt, but ComfyUI Python was not found. "
+        "Install these requirements in the ComfyUI Python environment, then restart ComfyUI."
+    )
+
+
+def ensure_custom_nodes(
+    base_dir: Path,
+    *,
+    comfy_python: Path | None = None,
+    install_requirements: bool = True,
+) -> None:
     custom_nodes_dir = base_dir / "custom_nodes"
     custom_nodes_dir.mkdir(parents=True, exist_ok=True)
     git = shutil.which("git")
@@ -232,13 +283,13 @@ def ensure_custom_nodes(base_dir: Path) -> None:
         dest = base_dir / str(repo["dest"])
         if dest.exists():
             log(f"[skip] {repo['name']}")
-            continue
-        if not git:
-            raise RuntimeError("git is required to install missing ComfyUI custom nodes.")
-        run([git, "clone", "--depth", "1", str(repo["url"]), str(dest)], custom_nodes_dir)
+        else:
+            if not git:
+                raise RuntimeError("git is required to install missing ComfyUI custom nodes.")
+            run([git, "clone", "--depth", "1", str(repo["url"]), str(dest)], custom_nodes_dir)
         requirements = dest / "requirements.txt"
-        if requirements.exists():
-            log(f"[note] {repo['name']} has requirements.txt. Install it in the ComfyUI Python environment if ComfyUI reports missing packages.")
+        if install_requirements and requirements.exists():
+            install_node_requirements(requirements, comfy_python)
 
 
 def png_chunk(chunk_type: bytes, data: bytes) -> bytes:
@@ -284,9 +335,17 @@ def write_sample_png(path: Path, width: int = 1280, height: int = 704) -> None:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Install/check Wan2.2 local video workflow assets.")
     parser.add_argument("--base-dir", type=Path, default=Path(__file__).resolve().parents[2])
+    parser.add_argument(
+        "--profile",
+        choices=sorted(PROFILE_GROUPS),
+        default="cuda-full",
+        help="Asset profile to install: CUDA Wan mainline, Mac LTX, Mac Wan5B, or post tools.",
+    )
+    parser.add_argument("--comfy-python", type=Path, default=None, help="Python executable used by ComfyUI for custom node requirements.")
     parser.add_argument("--skip-t2v", action="store_true", help="Skip optional T2V A14B files.")
     parser.add_argument("--skip-loras", action="store_true", help="Skip 4-step acceleration LoRAs.")
     parser.add_argument("--no-custom-nodes", action="store_true", help="Do not clone missing ComfyUI custom node repos.")
+    parser.add_argument("--no-node-requirements", action="store_true", help="Do not install custom node requirements.")
     return parser.parse_args()
 
 
@@ -294,12 +353,23 @@ def main() -> int:
     args = parse_args()
     base_dir = args.base_dir.resolve()
     log(f"[base] {base_dir}")
+    log(f"[profile] {args.profile}")
 
-    if not args.no_custom_nodes:
-        ensure_custom_nodes(base_dir)
+    comfy_python = args.comfy_python.resolve() if args.comfy_python else None
+    if comfy_python:
+        log(f"[comfy-python] {comfy_python}")
+
+    if not args.no_custom_nodes and PROFILE_CUSTOM_NODES.get(args.profile, True):
+        ensure_custom_nodes(
+            base_dir,
+            comfy_python=comfy_python,
+            install_requirements=not args.no_node_requirements,
+        )
+    elif PROFILE_CUSTOM_NODES.get(args.profile, True) is False:
+        log(f"[skip] custom nodes are not required for profile {args.profile}")
 
     for item in MODEL_FILES:
-        if should_skip(item, args.skip_t2v, args.skip_loras):
+        if should_skip(item, args.profile, args.skip_t2v, args.skip_loras):
             continue
         download_file(str(item["url"]), base_dir / str(item["dest"]), int(item["bytes"]))
 

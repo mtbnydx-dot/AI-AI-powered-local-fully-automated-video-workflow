@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import mimetypes
+import json
 import os
 import platform
 import random
@@ -17,13 +18,29 @@ from urllib.parse import quote, urlparse
 
 import httpx
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 
 APP_DIR = Path(__file__).resolve().parent
 WORKSPACE_DIR = APP_DIR.parent
-BASE_DIR = Path(os.environ.get("COMFY_BASE_DIR", WORKSPACE_DIR.parent)).expanduser().resolve()
+
+
+def looks_like_comfy_base(path: Path) -> bool:
+    return all((path / name).exists() for name in ("models", "input", "output", "custom_nodes"))
+
+
+def default_comfy_base_dir() -> Path:
+    configured = os.environ.get("COMFY_BASE_DIR")
+    if configured:
+        return Path(configured).expanduser().resolve()
+    parent = WORKSPACE_DIR.parent
+    if looks_like_comfy_base(parent):
+        return parent.resolve()
+    return WORKSPACE_DIR.resolve()
+
+
+BASE_DIR = default_comfy_base_dir()
 INPUT_DIR = BASE_DIR / "input"
 OUTPUT_DIR = BASE_DIR / "output"
 TEMP_DIR = BASE_DIR / "temp"
@@ -59,6 +76,78 @@ app = FastAPI(title="Wan2.2 Beginner Frontend")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
+def configured_comfy_paths() -> dict[str, Any]:
+    return {
+        "base_dir": BASE_DIR,
+        "input_dir": INPUT_DIR,
+        "output_dir": OUTPUT_DIR,
+        "temp_dir": TEMP_DIR,
+        "user_dir": BASE_DIR / "user",
+        "source": "configured",
+    }
+
+
+def path_from_arg(argv: list[Any], flag: str) -> str | None:
+    for index, item in enumerate(argv):
+        value = str(item)
+        if value == flag and index + 1 < len(argv):
+            return str(argv[index + 1])
+        prefix = f"{flag}="
+        if value.startswith(prefix):
+            return value[len(prefix) :]
+    return None
+
+
+def comfy_paths_from_system_stats(system_stats: dict[str, Any] | None) -> dict[str, Any]:
+    paths = configured_comfy_paths()
+    argv = ((system_stats or {}).get("system") or {}).get("argv") or []
+    source = "configured"
+
+    base_arg = path_from_arg(argv, "--base-directory")
+    if base_arg:
+        paths["base_dir"] = Path(base_arg).expanduser().resolve()
+        source = "running_comfyui"
+
+    base_dir = Path(paths["base_dir"])
+    for key, flag, fallback in [
+        ("input_dir", "--input-directory", base_dir / "input"),
+        ("output_dir", "--output-directory", base_dir / "output"),
+        ("temp_dir", "--temp-directory", base_dir / "temp"),
+        ("user_dir", "--user-directory", base_dir / "user"),
+    ]:
+        arg = path_from_arg(argv, flag)
+        paths[key] = Path(arg).expanduser().resolve() if arg else fallback
+
+    paths["source"] = source
+    paths["base_dir_mismatch"] = Path(paths["base_dir"]).resolve() != BASE_DIR.resolve()
+    return paths
+
+
+def serializable_comfy_paths(paths: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "configured_base_dir": str(BASE_DIR),
+        "active_base_dir": str(paths["base_dir"]),
+        "input_dir": str(paths["input_dir"]),
+        "output_dir": str(paths["output_dir"]),
+        "temp_dir": str(paths["temp_dir"]),
+        "user_dir": str(paths["user_dir"]),
+        "source": paths.get("source", "configured"),
+        "base_dir_mismatch": bool(paths.get("base_dir_mismatch")),
+    }
+
+
+async def active_comfy_paths() -> dict[str, Any]:
+    try:
+        system_stats = await comfy_get("/system_stats")
+    except HTTPException:
+        return configured_comfy_paths()
+    return comfy_paths_from_system_stats(system_stats)
+
+
+def upload_dir_for(paths: dict[str, Any] | None = None) -> Path:
+    return Path((paths or configured_comfy_paths())["input_dir"]) / "beginner_frontend"
+
+
 def now_ms() -> int:
     return int(time.time() * 1000)
 
@@ -82,6 +171,12 @@ def normalize_frames(length: int) -> int:
     length = clamp_int(length, 17, 241)
     # Wan video latents use 1 + 4n frame counts.
     return 1 + 4 * round((length - 1) / 4)
+
+
+def normalize_ltx_frames(length: int) -> int:
+    length = clamp_int(length, 9, 241)
+    # LTXV latent video nodes use 1 + 8n frame counts.
+    return 1 + 8 * round((length - 1) / 8)
 
 
 def normalize_dimension(value: int) -> int:
@@ -148,6 +243,34 @@ def workflow_profile_specs() -> dict[str, dict[str, Any]]:
         "wan22_ti2v_5b_final_480p": {
             "mode": "ti2v_5b",
             "label": "Wan2.2 TI2V-5B 480P 小显存正片",
+        },
+        "mac_ltx_low_i2v": {
+            "mode": "ltx_i2v",
+            "label": "Mac LTX I2V 低档 384P",
+        },
+        "mac_ltx_balanced_i2v": {
+            "mode": "ltx_i2v",
+            "label": "Mac LTX I2V 均衡 512P",
+        },
+        "mac_ltx_quality_i2v": {
+            "mode": "ltx_i2v",
+            "label": "Mac LTX I2V 质量档",
+        },
+        "mac_ltx_low_t2v": {
+            "mode": "ltx_t2v",
+            "label": "Mac LTX T2V 低档",
+        },
+        "mac_ltx_balanced_t2v": {
+            "mode": "ltx_t2v",
+            "label": "Mac LTX T2V 均衡档",
+        },
+        "mac_wan5b_480p": {
+            "mode": "ti2v_5b",
+            "label": "Mac Wan2.2 TI2V-5B 480P 实验档",
+        },
+        "mac_wan5b_720p_experimental": {
+            "mode": "ti2v_5b",
+            "label": "Mac Wan2.2 TI2V-5B 720P 高内存实验档",
         },
         "ffmpeg_deflicker_balanced": {
             "mode": "deflicker",
@@ -235,28 +358,30 @@ async def comfy_post(path: str, payload: dict[str, Any]) -> Any:
         ) from exc
 
 
-async def save_upload(upload: UploadFile, allowed: set[str]) -> str:
+async def save_upload(upload: UploadFile, allowed: set[str], paths: dict[str, Any] | None = None) -> str:
     suffix = Path(upload.filename or "").suffix.lower()
     if suffix not in allowed:
         allowed_text = ", ".join(sorted(allowed))
         raise HTTPException(status_code=400, detail=f"文件格式不支持，请使用：{allowed_text}")
 
-    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    upload_dir = upload_dir_for(paths)
+    upload_dir.mkdir(parents=True, exist_ok=True)
     filename = safe_filename(upload.filename or f"upload{suffix}")
-    destination = UPLOAD_DIR / filename
+    destination = upload_dir / filename
     with destination.open("wb") as output:
         shutil.copyfileobj(upload.file, output)
     return f"beginner_frontend/{filename}"
 
 
-def copy_media_to_input(filename: str, subfolder: str, file_type: str) -> str:
-    source = safe_media_path(filename, subfolder, file_type)
+def copy_media_to_input(filename: str, subfolder: str, file_type: str, paths: dict[str, Any] | None = None) -> str:
+    source = safe_media_path(filename, subfolder, file_type, paths)
     if source.suffix.lower() not in VIDEO_EXTENSIONS:
         raise HTTPException(status_code=400, detail="上一阶段输出不是可处理的视频")
 
-    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    upload_dir = upload_dir_for(paths)
+    upload_dir.mkdir(parents=True, exist_ok=True)
     destination_name = safe_filename(source.name)
-    destination = UPLOAD_DIR / destination_name
+    destination = upload_dir / destination_name
     shutil.copy2(source, destination)
     return f"beginner_frontend/{destination_name}"
 
@@ -292,7 +417,7 @@ def build_ti2v_prompt(
         "4": node(
             "UNETLoader",
             {
-                "unet_name": "Wan2.2\\wan2.2_ti2v_5B_fp16.safetensors",
+                "unet_name": "Wan2.2/wan2.2_ti2v_5B_fp16.safetensors",
                 "weight_dtype": "default",
             },
         ),
@@ -349,6 +474,162 @@ def build_ti2v_prompt(
     }
 
 
+def build_ltx_t2v_prompt(
+    *,
+    prompt: str,
+    negative: str,
+    width: int,
+    height: int,
+    length: int,
+    fps: int,
+    seed: int,
+    steps: int,
+    cfg: float,
+) -> dict[str, Any]:
+    return {
+        "1": node("CheckpointLoaderSimple", {"ckpt_name": "ltx-video-2b-v0.9.5.safetensors"}),
+        "2": node(
+            "CLIPLoader",
+            {
+                "clip_name": "t5xxl_fp16.safetensors",
+                "type": "ltxv",
+                "device": "default",
+            },
+        ),
+        "3": node("CLIPTextEncode", {"text": prompt, "clip": ["2", 0]}),
+        "4": node("CLIPTextEncode", {"text": negative, "clip": ["2", 0]}),
+        "5": node("LTXVConditioning", {"frame_rate": float(fps), "positive": ["3", 0], "negative": ["4", 0]}),
+        "6": node(
+            "EmptyLTXVLatentVideo",
+            {
+                "width": width,
+                "height": height,
+                "length": normalize_ltx_frames(length),
+                "batch_size": 1,
+            },
+        ),
+        "7": node(
+            "LTXVScheduler",
+            {
+                "steps": steps,
+                "max_shift": 2.05,
+                "base_shift": 0.95,
+                "stretch": True,
+                "terminal": 0.1,
+                "latent": ["6", 0],
+            },
+        ),
+        "8": node("KSamplerSelect", {"sampler_name": "res_multistep"}),
+        "9": node(
+            "SamplerCustom",
+            {
+                "model": ["1", 0],
+                "add_noise": True,
+                "noise_seed": seed,
+                "cfg": cfg,
+                "positive": ["5", 0],
+                "negative": ["5", 1],
+                "sampler": ["8", 0],
+                "sigmas": ["7", 0],
+                "latent_image": ["6", 0],
+            },
+        ),
+        "10": node("VAEDecode", {"samples": ["9", 0], "vae": ["1", 2]}),
+        "11": node("CreateVideo", {"images": ["10", 0], "fps": float(fps)}),
+        "12": node(
+            "SaveVideo",
+            {
+                "video": ["11", 0],
+                "filename_prefix": "wan22_frontend/Mac_LTX_T2V_%date:yyyy-MM-dd%",
+                "format": "mp4",
+                "codec": "h264",
+            },
+        ),
+    }
+
+
+def build_ltx_i2v_prompt(
+    *,
+    prompt: str,
+    negative: str,
+    image_name: str,
+    width: int,
+    height: int,
+    length: int,
+    fps: int,
+    seed: int,
+    steps: int,
+    cfg: float,
+) -> dict[str, Any]:
+    return {
+        "1": node("LoadImage", {"image": image_name}),
+        "2": node("LTXVPreprocess", {"image": ["1", 0], "img_compression": 40}),
+        "3": node("CheckpointLoaderSimple", {"ckpt_name": "ltx-video-2b-v0.9.5.safetensors"}),
+        "4": node(
+            "CLIPLoader",
+            {
+                "clip_name": "t5xxl_fp16.safetensors",
+                "type": "ltxv",
+                "device": "default",
+            },
+        ),
+        "5": node("CLIPTextEncode", {"text": prompt, "clip": ["4", 0]}),
+        "6": node("CLIPTextEncode", {"text": negative, "clip": ["4", 0]}),
+        "7": node(
+            "LTXVImgToVideo",
+            {
+                "positive": ["5", 0],
+                "negative": ["6", 0],
+                "vae": ["3", 2],
+                "image": ["2", 0],
+                "width": width,
+                "height": height,
+                "length": normalize_ltx_frames(length),
+                "batch_size": 1,
+                "strength": 1.0,
+            },
+        ),
+        "8": node("LTXVConditioning", {"frame_rate": float(fps), "positive": ["7", 0], "negative": ["7", 1]}),
+        "9": node(
+            "LTXVScheduler",
+            {
+                "steps": steps,
+                "max_shift": 2.05,
+                "base_shift": 0.95,
+                "stretch": True,
+                "terminal": 0.1,
+                "latent": ["7", 2],
+            },
+        ),
+        "10": node("KSamplerSelect", {"sampler_name": "euler"}),
+        "11": node(
+            "SamplerCustom",
+            {
+                "model": ["3", 0],
+                "add_noise": True,
+                "noise_seed": seed,
+                "cfg": cfg,
+                "positive": ["8", 0],
+                "negative": ["8", 1],
+                "sampler": ["10", 0],
+                "sigmas": ["9", 0],
+                "latent_image": ["7", 2],
+            },
+        ),
+        "12": node("VAEDecode", {"samples": ["11", 0], "vae": ["3", 2]}),
+        "13": node("CreateVideo", {"images": ["12", 0], "fps": float(fps)}),
+        "14": node(
+            "SaveVideo",
+            {
+                "video": ["13", 0],
+                "filename_prefix": "wan22_frontend/Mac_LTX_I2V_%date:yyyy-MM-dd%",
+                "format": "mp4",
+                "codec": "h264",
+            },
+        ),
+    }
+
+
 def build_a14b_i2v_prompt(
     *,
     prompt: str,
@@ -392,7 +673,7 @@ def build_a14b_i2v_prompt(
         "30": node(
             "UNETLoader",
             {
-                "unet_name": "Wan2.2\\wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors",
+                "unet_name": "Wan2.2/wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors",
                 "weight_dtype": "default",
             },
         ),
@@ -400,7 +681,7 @@ def build_a14b_i2v_prompt(
             "LoraLoaderModelOnly",
             {
                 "model": ["30", 0],
-                "lora_name": "Wan2.2\\wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors",
+                "lora_name": "Wan2.2/wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors",
                 "strength_model": 1.0,
             },
         ),
@@ -408,7 +689,7 @@ def build_a14b_i2v_prompt(
         "40": node(
             "UNETLoader",
             {
-                "unet_name": "Wan2.2\\wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors",
+                "unet_name": "Wan2.2/wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors",
                 "weight_dtype": "default",
             },
         ),
@@ -416,7 +697,7 @@ def build_a14b_i2v_prompt(
             "LoraLoaderModelOnly",
             {
                 "model": ["40", 0],
-                "lora_name": "Wan2.2\\wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors",
+                "lora_name": "Wan2.2/wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors",
                 "strength_model": 1.0,
             },
         ),
@@ -513,7 +794,7 @@ def build_a14b_t2v_prompt(
         "30": node(
             "UNETLoader",
             {
-                "unet_name": "Wan2.2\\wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors",
+                "unet_name": "Wan2.2/wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors",
                 "weight_dtype": "default",
             },
         ),
@@ -521,7 +802,7 @@ def build_a14b_t2v_prompt(
             "LoraLoaderModelOnly",
             {
                 "model": ["30", 0],
-                "lora_name": "Wan2.2\\wan2.2_t2v_lightx2v_4steps_lora_v1.1_high_noise.safetensors",
+                "lora_name": "Wan2.2/wan2.2_t2v_lightx2v_4steps_lora_v1.1_high_noise.safetensors",
                 "strength_model": 1.0,
             },
         ),
@@ -529,7 +810,7 @@ def build_a14b_t2v_prompt(
         "40": node(
             "UNETLoader",
             {
-                "unet_name": "Wan2.2\\wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors",
+                "unet_name": "Wan2.2/wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors",
                 "weight_dtype": "default",
             },
         ),
@@ -537,7 +818,7 @@ def build_a14b_t2v_prompt(
             "LoraLoaderModelOnly",
             {
                 "model": ["40", 0],
-                "lora_name": "Wan2.2\\wan2.2_t2v_lightx2v_4steps_lora_v1.1_low_noise.safetensors",
+                "lora_name": "Wan2.2/wan2.2_t2v_lightx2v_4steps_lora_v1.1_low_noise.safetensors",
                 "strength_model": 1.0,
             },
         ),
@@ -752,6 +1033,31 @@ def build_preview_workflow_graph(
             steps=steps,
             cfg=cfg,
         )
+    if mode == "ltx_i2v":
+        return build_ltx_i2v_prompt(
+            prompt=prompt,
+            negative=negative,
+            image_name=DEFAULT_IMAGE,
+            width=width,
+            height=height,
+            length=normalize_ltx_frames(length),
+            fps=fps,
+            seed=seed,
+            steps=steps,
+            cfg=cfg,
+        )
+    if mode == "ltx_t2v":
+        return build_ltx_t2v_prompt(
+            prompt=prompt,
+            negative=negative,
+            width=width,
+            height=height,
+            length=normalize_ltx_frames(length),
+            fps=fps,
+            seed=seed,
+            steps=steps,
+            cfg=cfg,
+        )
     if mode == "rife_2x":
         return build_rife_prompt(video_name="sample.mp4", fps=fps, multiplier=rife_multiplier)
     if mode == "upscale_2x":
@@ -833,11 +1139,12 @@ def extract_media(history_item: dict[str, Any]) -> list[dict[str, Any]]:
     return media
 
 
-def safe_media_path(filename: str, subfolder: str, file_type: str) -> Path:
+def safe_media_path(filename: str, subfolder: str, file_type: str, paths: dict[str, Any] | None = None) -> Path:
+    paths = paths or configured_comfy_paths()
     roots = {
-        "input": INPUT_DIR,
-        "output": OUTPUT_DIR,
-        "temp": TEMP_DIR,
+        "input": Path(paths["input_dir"]),
+        "output": Path(paths["output_dir"]),
+        "temp": Path(paths["temp_dir"]),
     }
     root = roots.get(file_type)
     if root is None:
@@ -845,30 +1152,37 @@ def safe_media_path(filename: str, subfolder: str, file_type: str) -> Path:
 
     base = root.resolve()
     candidate = (root / subfolder / filename).resolve()
-    if not str(candidate).lower().startswith(str(base).lower()):
+    try:
+        candidate.relative_to(base)
+    except ValueError:
         raise HTTPException(status_code=400, detail="文件路径不安全")
     if not candidate.exists():
         raise HTTPException(status_code=404, detail="文件不存在")
     return candidate
 
 
-def input_media_path(relative_name: str) -> Path:
+def input_media_path(relative_name: str, paths: dict[str, Any] | None = None) -> Path:
+    paths = paths or configured_comfy_paths()
     normalized = relative_name.replace("\\", "/")
     relative = Path(normalized)
     if relative.is_absolute() or ".." in relative.parts:
         raise HTTPException(status_code=400, detail="输入文件路径不安全")
 
-    base = INPUT_DIR.resolve()
-    candidate = (INPUT_DIR / relative).resolve()
-    if not str(candidate).lower().startswith(str(base).lower()):
+    input_dir = Path(paths["input_dir"])
+    base = input_dir.resolve()
+    candidate = (input_dir / relative).resolve()
+    try:
+        candidate.relative_to(base)
+    except ValueError:
         raise HTTPException(status_code=400, detail="输入文件路径不安全")
     if not candidate.exists():
         raise HTTPException(status_code=404, detail="输入文件不存在")
     return candidate
 
 
-def output_media_item(path: Path) -> dict[str, Any]:
-    output_base = OUTPUT_DIR.resolve()
+def output_media_item(path: Path, paths: dict[str, Any] | None = None) -> dict[str, Any]:
+    paths = paths or configured_comfy_paths()
+    output_base = Path(paths["output_dir"]).resolve()
     resolved = path.resolve()
     try:
         relative = resolved.relative_to(output_base)
@@ -915,13 +1229,15 @@ def ffmpeg_has_filter(filter_name: str) -> bool:
     return filter_name in result.stdout
 
 
-def workflow_asset_manifest() -> list[dict[str, Any]]:
+def workflow_asset_manifest(base_dir: Path | None = None) -> list[dict[str, Any]]:
+    base_dir = (base_dir or BASE_DIR).expanduser().resolve()
+    input_dir = base_dir / "input"
     return [
         {
             "id": "ti2v_5b",
             "label": "Wan2.2 TI2V-5B fp16",
             "step": "试镜头",
-            "path": BASE_DIR / "models" / "diffusion_models" / "Wan2.2" / "wan2.2_ti2v_5B_fp16.safetensors",
+            "path": base_dir / "models" / "diffusion_models" / "Wan2.2" / "wan2.2_ti2v_5B_fp16.safetensors",
             "bytes": 9999658848,
             "installable": True,
         },
@@ -929,7 +1245,7 @@ def workflow_asset_manifest() -> list[dict[str, Any]]:
             "id": "i2v_high",
             "label": "Wan2.2 I2V-A14B high noise fp8",
             "step": "正式片段",
-            "path": BASE_DIR / "models" / "diffusion_models" / "Wan2.2" / "wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors",
+            "path": base_dir / "models" / "diffusion_models" / "Wan2.2" / "wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors",
             "bytes": 14294742832,
             "installable": True,
         },
@@ -937,7 +1253,7 @@ def workflow_asset_manifest() -> list[dict[str, Any]]:
             "id": "i2v_low",
             "label": "Wan2.2 I2V-A14B low noise fp8",
             "step": "正式片段",
-            "path": BASE_DIR / "models" / "diffusion_models" / "Wan2.2" / "wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors",
+            "path": base_dir / "models" / "diffusion_models" / "Wan2.2" / "wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors",
             "bytes": 14294742832,
             "installable": True,
         },
@@ -945,7 +1261,7 @@ def workflow_asset_manifest() -> list[dict[str, Any]]:
             "id": "t2v_high",
             "label": "Wan2.2 T2V-A14B high noise fp8",
             "step": "文字生视频",
-            "path": BASE_DIR / "models" / "diffusion_models" / "Wan2.2" / "wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors",
+            "path": base_dir / "models" / "diffusion_models" / "Wan2.2" / "wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors",
             "bytes": 14293923632,
             "installable": True,
         },
@@ -953,7 +1269,7 @@ def workflow_asset_manifest() -> list[dict[str, Any]]:
             "id": "t2v_low",
             "label": "Wan2.2 T2V-A14B low noise fp8",
             "step": "文字生视频",
-            "path": BASE_DIR / "models" / "diffusion_models" / "Wan2.2" / "wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors",
+            "path": base_dir / "models" / "diffusion_models" / "Wan2.2" / "wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors",
             "bytes": 14293923632,
             "installable": True,
         },
@@ -961,7 +1277,7 @@ def workflow_asset_manifest() -> list[dict[str, Any]]:
             "id": "umt5",
             "label": "UMT5 XXL fp8 文本编码器",
             "step": "视频生成",
-            "path": BASE_DIR / "models" / "text_encoders" / "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+            "path": base_dir / "models" / "text_encoders" / "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
             "bytes": 6735906897,
             "installable": True,
         },
@@ -969,7 +1285,7 @@ def workflow_asset_manifest() -> list[dict[str, Any]]:
             "id": "wan21_vae",
             "label": "Wan 2.1 VAE",
             "step": "A14B 正片",
-            "path": BASE_DIR / "models" / "vae" / "wan_2.1_vae.safetensors",
+            "path": base_dir / "models" / "vae" / "wan_2.1_vae.safetensors",
             "bytes": 253815318,
             "installable": True,
         },
@@ -977,15 +1293,31 @@ def workflow_asset_manifest() -> list[dict[str, Any]]:
             "id": "wan22_vae",
             "label": "Wan 2.2 VAE",
             "step": "TI2V 草稿",
-            "path": BASE_DIR / "models" / "vae" / "wan2.2_vae.safetensors",
+            "path": base_dir / "models" / "vae" / "wan2.2_vae.safetensors",
             "bytes": 1409400960,
+            "installable": True,
+        },
+        {
+            "id": "ltx_2b_095",
+            "label": "LTX-Video 2B 0.9.5",
+            "step": "Mac LTX 视频",
+            "path": base_dir / "models" / "checkpoints" / "ltx-video-2b-v0.9.5.safetensors",
+            "bytes": 6340729500,
+            "installable": True,
+        },
+        {
+            "id": "t5xxl_fp16",
+            "label": "T5 XXL fp16 文本编码器",
+            "step": "Mac LTX 视频",
+            "path": base_dir / "models" / "text_encoders" / "t5xxl_fp16.safetensors",
+            "bytes": 9787841024,
             "installable": True,
         },
         {
             "id": "i2v_lora_high",
             "label": "I2V 4步 LoRA high noise",
             "step": "正式片段",
-            "path": BASE_DIR / "models" / "loras" / "Wan2.2" / "wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors",
+            "path": base_dir / "models" / "loras" / "Wan2.2" / "wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors",
             "bytes": 1226977424,
             "installable": True,
         },
@@ -993,7 +1325,7 @@ def workflow_asset_manifest() -> list[dict[str, Any]]:
             "id": "i2v_lora_low",
             "label": "I2V 4步 LoRA low noise",
             "step": "正式片段",
-            "path": BASE_DIR / "models" / "loras" / "Wan2.2" / "wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors",
+            "path": base_dir / "models" / "loras" / "Wan2.2" / "wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors",
             "bytes": 1226977424,
             "installable": True,
         },
@@ -1001,7 +1333,7 @@ def workflow_asset_manifest() -> list[dict[str, Any]]:
             "id": "t2v_lora_high",
             "label": "T2V 4步 LoRA high noise",
             "step": "文字生视频",
-            "path": BASE_DIR / "models" / "loras" / "Wan2.2" / "wan2.2_t2v_lightx2v_4steps_lora_v1.1_high_noise.safetensors",
+            "path": base_dir / "models" / "loras" / "Wan2.2" / "wan2.2_t2v_lightx2v_4steps_lora_v1.1_high_noise.safetensors",
             "bytes": 1226977424,
             "installable": True,
         },
@@ -1009,7 +1341,7 @@ def workflow_asset_manifest() -> list[dict[str, Any]]:
             "id": "t2v_lora_low",
             "label": "T2V 4步 LoRA low noise",
             "step": "文字生视频",
-            "path": BASE_DIR / "models" / "loras" / "Wan2.2" / "wan2.2_t2v_lightx2v_4steps_lora_v1.1_low_noise.safetensors",
+            "path": base_dir / "models" / "loras" / "Wan2.2" / "wan2.2_t2v_lightx2v_4steps_lora_v1.1_low_noise.safetensors",
             "bytes": 1226977424,
             "installable": True,
         },
@@ -1017,7 +1349,7 @@ def workflow_asset_manifest() -> list[dict[str, Any]]:
             "id": "rife49",
             "label": "RIFE 4.9 插帧权重",
             "step": "RIFE 插帧",
-            "path": BASE_DIR / "custom_nodes" / "ComfyUI-Frame-Interpolation" / "ckpts" / "rife" / "rife49.pth",
+            "path": base_dir / "custom_nodes" / "ComfyUI-Frame-Interpolation" / "ckpts" / "rife" / "rife49.pth",
             "bytes": 21345274,
             "installable": True,
         },
@@ -1025,7 +1357,7 @@ def workflow_asset_manifest() -> list[dict[str, Any]]:
             "id": "realesrgan_x2",
             "label": "RealESRGAN x2 视频超分权重",
             "step": "清晰度增强",
-            "path": BASE_DIR / "models" / "upscale_models" / "RealESRGAN_x2plus.pth",
+            "path": base_dir / "models" / "upscale_models" / "RealESRGAN_x2plus.pth",
             "bytes": 67061725,
             "installable": True,
         },
@@ -1033,7 +1365,7 @@ def workflow_asset_manifest() -> list[dict[str, Any]]:
             "id": "ultrasharp_x4",
             "label": "4x-UltraSharp 备用超分权重",
             "step": "清晰度增强",
-            "path": BASE_DIR / "models" / "upscale_models" / "4x-UltraSharp.pth",
+            "path": base_dir / "models" / "upscale_models" / "4x-UltraSharp.pth",
             "bytes": 66961958,
             "installable": True,
         },
@@ -1041,40 +1373,43 @@ def workflow_asset_manifest() -> list[dict[str, Any]]:
             "id": "sample_keyframe",
             "label": "内置示例关键帧",
             "step": "关键帧",
-            "path": INPUT_DIR / DEFAULT_IMAGE,
+            "path": input_dir / DEFAULT_IMAGE,
             "bytes": None,
             "installable": True,
         },
     ]
 
 
-def custom_node_manifest() -> list[dict[str, Any]]:
+def custom_node_manifest(base_dir: Path | None = None) -> list[dict[str, Any]]:
+    base_dir = (base_dir or BASE_DIR).expanduser().resolve()
     return [
         {
             "id": "video_helper_suite",
             "label": "ComfyUI-VideoHelperSuite",
-            "path": BASE_DIR / "custom_nodes" / "ComfyUI-VideoHelperSuite",
+            "path": base_dir / "custom_nodes" / "ComfyUI-VideoHelperSuite",
             "installable": True,
         },
         {
             "id": "frame_interpolation",
             "label": "ComfyUI-Frame-Interpolation",
-            "path": BASE_DIR / "custom_nodes" / "ComfyUI-Frame-Interpolation",
+            "path": base_dir / "custom_nodes" / "ComfyUI-Frame-Interpolation",
             "installable": True,
         },
     ]
 
 
-def path_label(path: Path) -> str:
+def path_label(path: Path, base_dir: Path | None = None) -> str:
+    base_dir = (base_dir or BASE_DIR).expanduser().resolve()
     try:
-        return str(path.resolve().relative_to(BASE_DIR.resolve())).replace("\\", "/")
+        return str(path.resolve().relative_to(base_dir)).replace("\\", "/")
     except ValueError:
         return str(path)
 
 
-def collect_asset_checks() -> list[dict[str, Any]]:
+def collect_asset_checks(base_dir: Path | None = None) -> list[dict[str, Any]]:
+    base_dir = (base_dir or BASE_DIR).expanduser().resolve()
     checks: list[dict[str, Any]] = []
-    for item in workflow_asset_manifest():
+    for item in workflow_asset_manifest(base_dir):
         path = item["path"]
         exists = path.exists()
         size = path.stat().st_size if exists else 0
@@ -1092,7 +1427,7 @@ def collect_asset_checks() -> list[dict[str, Any]]:
                 "label": item["label"],
                 "step": item["step"],
                 "path": str(path),
-                "relative_path": path_label(path),
+                "relative_path": path_label(path, base_dir),
                 "ok": bool(size_ok),
                 "exists": exists,
                 "size_gb": round(size / 1024**3, 2) if exists else 0,
@@ -1104,9 +1439,10 @@ def collect_asset_checks() -> list[dict[str, Any]]:
     return checks
 
 
-def collect_custom_node_checks() -> list[dict[str, Any]]:
+def collect_custom_node_checks(base_dir: Path | None = None) -> list[dict[str, Any]]:
+    base_dir = (base_dir or BASE_DIR).expanduser().resolve()
     checks: list[dict[str, Any]] = []
-    for item in custom_node_manifest():
+    for item in custom_node_manifest(base_dir):
         path = item["path"]
         ok = path.exists() and path.is_dir()
         checks.append(
@@ -1114,7 +1450,7 @@ def collect_custom_node_checks() -> list[dict[str, Any]]:
                 "id": item["id"],
                 "label": item["label"],
                 "path": str(path),
-                "relative_path": path_label(path),
+                "relative_path": path_label(path, base_dir),
                 "ok": ok,
                 "installable": bool(item.get("installable")),
                 "reason": "已就绪" if ok else "缺失",
@@ -1199,6 +1535,178 @@ def collect_torch_hardware() -> dict[str, Any]:
     return info
 
 
+def run_text_command(command: list[str], timeout: int = 8) -> str:
+    result = subprocess.run(command, capture_output=True, text=True, check=True, timeout=timeout)
+    return result.stdout.strip()
+
+
+def mac_chip_tier(chip_name: str) -> str:
+    value = chip_name.lower()
+    if "ultra" in value:
+        return "ultra"
+    if "max" in value:
+        return "max"
+    if "pro" in value:
+        return "pro"
+    if value:
+        return "base"
+    return ""
+
+
+def detect_mac_hardware() -> dict[str, Any]:
+    info: dict[str, Any] = {
+        "is_macos": platform.system() == "Darwin",
+        "apple_silicon": False,
+        "chip": "",
+        "chip_tier": "",
+        "unified_memory_gb": None,
+        "machine_model": "",
+        "machine_name": "",
+        "mps_capable": False,
+    }
+    if not info["is_macos"]:
+        return info
+
+    machine = platform.machine()
+    info["apple_silicon"] = machine == "arm64"
+    try:
+        info["chip"] = run_text_command(["sysctl", "-n", "machdep.cpu.brand_string"], timeout=5)
+    except Exception:
+        info["chip"] = platform.processor() or ""
+
+    try:
+        mem_bytes = int(run_text_command(["sysctl", "-n", "hw.memsize"], timeout=5))
+        info["unified_memory_gb"] = round(mem_bytes / 1024**3, 1)
+    except Exception:
+        info["unified_memory_gb"] = get_system_memory_gb()
+
+    try:
+        raw = run_text_command(["system_profiler", "SPHardwareDataType", "-json"], timeout=12)
+        payload = json.loads(raw)
+        hardware_items = payload.get("SPHardwareDataType") or []
+        if hardware_items:
+            hardware = hardware_items[0]
+            info["machine_model"] = hardware.get("machine_model", "") or ""
+            info["machine_name"] = hardware.get("machine_name", "") or ""
+            if hardware.get("chip_type"):
+                info["chip"] = hardware.get("chip_type")
+    except Exception:
+        pass
+
+    info["chip_tier"] = mac_chip_tier(str(info.get("chip") or ""))
+    info["mps_capable"] = bool(info["apple_silicon"])
+    return info
+
+
+def probe_python_torch(python: Path) -> dict[str, Any]:
+    probe: dict[str, Any] = {
+        "python": str(python),
+        "exists": python.exists(),
+        "available": False,
+        "cuda_available": False,
+        "mps_built": False,
+        "mps_available": False,
+    }
+    if not python.exists():
+        return probe
+    code = (
+        "import json\n"
+        "payload={'available': False, 'cuda_available': False, 'mps_built': False, 'mps_available': False}\n"
+        "try:\n"
+        " import torch\n"
+        " payload['available']=True\n"
+        " payload['version']=getattr(torch,'__version__',None)\n"
+        " payload['cuda_available']=bool(torch.cuda.is_available())\n"
+        " mps=getattr(getattr(torch,'backends',None),'mps',None)\n"
+        " payload['mps_built']=bool(mps and mps.is_built())\n"
+        " payload['mps_available']=bool(mps and mps.is_available())\n"
+        "except Exception as exc:\n"
+        " payload['error']=str(exc)\n"
+        "print(json.dumps(payload))\n"
+    )
+    try:
+        result = subprocess.run(
+            [str(python), "-c", code],
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+        if result.stdout.strip():
+            probe.update(json.loads(result.stdout.strip().splitlines()[-1]))
+        if result.returncode != 0 and result.stderr.strip():
+            probe["error"] = result.stderr.strip()[-1000:]
+    except Exception as exc:
+        probe["error"] = str(exc)
+    return probe
+
+
+def comfy_torch_probe() -> dict[str, Any]:
+    try:
+        return probe_python_torch(comfy_venv_python())
+    except Exception as exc:
+        return {
+            "python": str(COMFY_INSTALL_DIR),
+            "exists": False,
+            "available": False,
+            "cuda_available": False,
+            "mps_built": False,
+            "mps_available": False,
+            "error": str(exc),
+        }
+
+
+def comfy_devices_have_mps(devices: list[dict[str, Any]]) -> bool:
+    for device in devices:
+        text = f"{device.get('type', '')} {device.get('name', '')}".lower()
+        if any(token in text for token in ("mps", "metal", "apple")):
+            return True
+    return False
+
+
+def mac_video_tier(mac: dict[str, Any]) -> str:
+    if not mac.get("is_macos"):
+        return ""
+    if not mac.get("apple_silicon"):
+        return "mac_post_only"
+
+    memory = float(mac.get("unified_memory_gb") or 0)
+    chip_tier = str(mac.get("chip_tier") or "base")
+    if memory < 12:
+        tier = "mac_ltx_low"
+    elif memory < 24:
+        tier = "mac_ltx_low"
+    elif memory < 32:
+        tier = "mac_ltx_balanced"
+    elif memory < 48:
+        tier = "mac_ltx_quality"
+    elif memory < 96:
+        tier = "mac_wan5b_480p"
+    else:
+        tier = "mac_wan5b_720p_experimental"
+
+    if chip_tier == "base" and tier not in {"mac_ltx_low", "mac_ltx_balanced"}:
+        return "mac_ltx_balanced"
+    if chip_tier == "pro" and tier in {"mac_wan5b_480p", "mac_wan5b_720p_experimental"}:
+        return "mac_ltx_quality"
+    return tier
+
+
+def platform_strategy_for(
+    *,
+    mac: dict[str, Any],
+    has_cuda: bool,
+    has_mps_capability: bool,
+) -> str:
+    if mac.get("is_macos"):
+        if mac.get("apple_silicon") and has_mps_capability:
+            return "mac_mps"
+        return "mac_post_only"
+    if has_cuda:
+        return "cuda_wan_workflow"
+    return "post_only"
+
+
 def summarize_comfy_devices(system_stats: dict[str, Any] | None) -> list[dict[str, Any]]:
     devices: list[dict[str, Any]] = []
     for index, device in enumerate((system_stats or {}).get("devices") or []):
@@ -1218,6 +1726,8 @@ def summarize_comfy_devices(system_stats: dict[str, Any] | None) -> list[dict[st
 
 def build_hardware_summary(system_stats: dict[str, Any] | None) -> dict[str, Any]:
     torch_info = collect_torch_hardware()
+    mac_info = detect_mac_hardware()
+    comfy_torch = comfy_torch_probe()
     comfy_devices = summarize_comfy_devices(system_stats)
     devices = comfy_devices or torch_info.get("devices") or []
     max_vram = max((device.get("vram_total_gb") or 0 for device in devices), default=0)
@@ -1226,16 +1736,32 @@ def build_hardware_summary(system_stats: dict[str, Any] | None) -> dict[str, Any
         "cuda" in str(device.get("type", "")).lower() or "nvidia" in str(device.get("name", "")).lower()
         for device in devices
     )
-    has_mps = bool(torch_info.get("mps_available"))
+    comfy_reports_mps = comfy_devices_have_mps(comfy_devices)
+    front_mps_ready = bool(torch_info.get("mps_available"))
+    comfy_mps_ready = bool(comfy_torch.get("mps_available")) or comfy_reports_mps
+    has_mps_capability = bool(mac_info.get("mps_capable") or front_mps_ready or comfy_mps_ready)
+    has_mps = bool(front_mps_ready or comfy_mps_ready or mac_info.get("mps_capable"))
     accelerator = "cuda" if has_cuda else "mps" if has_mps else "cpu"
+    platform_strategy = platform_strategy_for(
+        mac=mac_info,
+        has_cuda=has_cuda,
+        has_mps_capability=has_mps_capability,
+    )
+    mac_tier = mac_video_tier(mac_info)
     return {
         "accelerator": accelerator,
+        "platform_strategy": platform_strategy,
         "devices": devices,
         "gpu_count": len(devices),
         "max_vram_gb": round(max_vram, 1),
         "sum_vram_gb": sum_vram,
         "system_memory_gb": get_system_memory_gb(),
         "torch": torch_info,
+        "front_torch_mps_ready": front_mps_ready,
+        "comfy_torch": comfy_torch,
+        "comfy_torch_mps_ready": comfy_mps_ready,
+        "mac": mac_info,
+        "mac_video_tier": mac_tier,
     }
 
 
@@ -1256,6 +1782,15 @@ def collect_node_checks(object_info: dict[str, Any] | None) -> list[dict[str, An
         "VAEDecodeTiled",
         "LoraLoaderModelOnly",
         "ModelSamplingSD3",
+        "CheckpointLoaderSimple",
+        "EmptyLTXVLatentVideo",
+        "LTXVConditioning",
+        "LTXVScheduler",
+        "LTXVImgToVideo",
+        "LTXVPreprocess",
+        "SamplerCustom",
+        "KSamplerSelect",
+        "VAEDecode",
         "VHS_LoadVideo",
         "VHS_VideoCombine",
         "RIFE VFI",
@@ -1267,6 +1802,356 @@ def collect_node_checks(object_info: dict[str, Any] | None) -> list[dict[str, An
     return [{"name": name, "ok": name in object_info, "reason": "已加载" if name in object_info else "缺少"} for name in required_nodes]
 
 
+def node_input_options(object_info: dict[str, Any] | None, node_name: str, input_name: str) -> list[str]:
+    if not object_info or node_name not in object_info:
+        return []
+    node_info = object_info.get(node_name) or {}
+    value = ((node_info.get("input") or {}).get("required") or {}).get(input_name)
+    if value is None:
+        value = ((node_info.get("input") or {}).get("optional") or {}).get(input_name)
+
+    if isinstance(value, (list, tuple)):
+        if value and isinstance(value[0], (list, tuple)):
+            return [str(item) for item in value[0]]
+        if len(value) > 1 and isinstance(value[1], dict) and isinstance(value[1].get("options"), (list, tuple)):
+            return [str(item) for item in value[1]["options"]]
+        if value and all(not isinstance(item, (dict, list, tuple)) for item in value):
+            return [str(item) for item in value]
+    if isinstance(value, dict) and isinstance(value.get("options"), (list, tuple)):
+        return [str(item) for item in value["options"]]
+    return []
+
+
+def model_option_matches(options: list[str], expected: str) -> bool:
+    expected_norm = expected.replace("\\", "/").lower()
+    expected_base = Path(expected_norm).name
+    for option in options:
+        option_norm = option.replace("\\", "/").lower()
+        if option_norm == expected_norm or option_norm.endswith(f"/{expected_norm}"):
+            return True
+        if Path(option_norm).name == expected_base:
+            return True
+    return False
+
+
+def resolve_graph_model_option_names(graph: dict[str, Any], object_info: dict[str, Any]) -> dict[str, Any]:
+    input_by_class = {
+        "CheckpointLoaderSimple": "ckpt_name",
+        "UNETLoader": "unet_name",
+        "LoraLoaderModelOnly": "lora_name",
+        "VAELoader": "vae_name",
+        "CLIPLoader": "clip_name",
+        "UpscaleModelLoader": "model_name",
+    }
+    for item in graph.values():
+        class_type = item.get("class_type")
+        input_name = input_by_class.get(str(class_type))
+        if not input_name:
+            continue
+        inputs = item.get("inputs") or {}
+        current = inputs.get(input_name)
+        if not isinstance(current, str):
+            continue
+        options = node_input_options(object_info, str(class_type), input_name)
+        for option in options:
+            if model_option_matches([option], current):
+                inputs[input_name] = option
+                break
+    return graph
+
+
+def graph_model_registry_errors(graph: dict[str, Any], object_info: dict[str, Any] | None) -> list[str]:
+    if object_info is None:
+        return ["ComfyUI 未连接，无法验证 workflow 里的模型名。"]
+
+    input_by_class = {
+        "CheckpointLoaderSimple": "ckpt_name",
+        "UNETLoader": "unet_name",
+        "LoraLoaderModelOnly": "lora_name",
+        "VAELoader": "vae_name",
+        "CLIPLoader": "clip_name",
+        "UpscaleModelLoader": "model_name",
+    }
+    errors: list[str] = []
+    for node_id, item in graph.items():
+        class_type = str(item.get("class_type") or "")
+        input_name = input_by_class.get(class_type)
+        if not input_name:
+            continue
+        inputs = item.get("inputs") or {}
+        current = inputs.get(input_name)
+        if not isinstance(current, str):
+            continue
+        options = node_input_options(object_info, class_type, input_name)
+        if not model_option_matches(options, current):
+            errors.append(f"{node_id}.{class_type}.{input_name} 模型未出现在 ComfyUI 列表：{current}")
+    return errors
+
+
+def workflow_risk_checks(*, mode: str, hardware: dict[str, Any], width: int, height: int, length: int) -> list[dict[str, str]]:
+    checks: list[dict[str, str]] = []
+    strategy = hardware.get("platform_strategy")
+    if strategy != "mac_mps":
+        return checks
+
+    mps_ready = bool(hardware.get("front_torch_mps_ready") or hardware.get("comfy_torch_mps_ready"))
+    if mode in {"i2v_a14b", "t2v_a14b"}:
+        checks.append(
+            {
+                "level": "blocked",
+                "title": "A14B Mac 专家风险",
+                "message": "Wan2.2 A14B 的 fp8/MPS 兼容风险较高，Mac 默认不开放。请先使用 LTX 或 Wan5B 实验档。",
+            }
+        )
+    if mode == "ti2v_5b":
+        checks.append(
+            {
+                "level": "warn",
+                "title": "Wan5B MPS smoke test",
+                "message": "Mac 上运行 Wan5B 前建议先用 512x320、9 到 17 帧、低步数跑一次 smoke test，再提高到当前分辨率。",
+            }
+        )
+        if width >= 1280 or height >= 704 or length > 49:
+            checks.append(
+                {
+                    "level": "warn",
+                    "title": "720P 高内存实验",
+                    "message": "当前参数属于 Mac 高内存实验范围；如果出现 OOM、dtype 或黑屏，先退回 480P/短帧数。",
+                }
+            )
+    if mode in {"ltx_i2v", "ltx_t2v"} and not mps_ready:
+        checks.append(
+            {
+                "level": "warn",
+                "title": "MPS 状态未确认",
+                "message": "未在前端或 ComfyUI Python 中确认 torch.backends.mps 可用；这不一定代表不能跑，但建议先启动 ComfyUI 后刷新环境。",
+            }
+        )
+    return checks
+
+
+async def apply_comfy_model_option_names(graph: dict[str, Any]) -> dict[str, Any]:
+    try:
+        object_info = await comfy_get("/object_info")
+    except HTTPException:
+        return graph
+    return resolve_graph_model_option_names(graph, object_info)
+
+
+def collect_model_registry_checks(object_info: dict[str, Any] | None) -> list[dict[str, Any]]:
+    expectations = [
+        {
+            "id": "ti2v_5b",
+            "label": "Wan2.2 TI2V-5B fp16",
+            "node": "UNETLoader",
+            "input": "unet_name",
+            "name": "Wan2.2/wan2.2_ti2v_5B_fp16.safetensors",
+        },
+        {
+            "id": "i2v_high",
+            "label": "Wan2.2 I2V-A14B high noise fp8",
+            "node": "UNETLoader",
+            "input": "unet_name",
+            "name": "Wan2.2/wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors",
+        },
+        {
+            "id": "i2v_low",
+            "label": "Wan2.2 I2V-A14B low noise fp8",
+            "node": "UNETLoader",
+            "input": "unet_name",
+            "name": "Wan2.2/wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors",
+        },
+        {
+            "id": "t2v_high",
+            "label": "Wan2.2 T2V-A14B high noise fp8",
+            "node": "UNETLoader",
+            "input": "unet_name",
+            "name": "Wan2.2/wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors",
+        },
+        {
+            "id": "t2v_low",
+            "label": "Wan2.2 T2V-A14B low noise fp8",
+            "node": "UNETLoader",
+            "input": "unet_name",
+            "name": "Wan2.2/wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors",
+        },
+        {
+            "id": "umt5",
+            "label": "UMT5 XXL fp8 文本编码器",
+            "node": "CLIPLoader",
+            "input": "clip_name",
+            "name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+        },
+        {
+            "id": "wan21_vae",
+            "label": "Wan 2.1 VAE",
+            "node": "VAELoader",
+            "input": "vae_name",
+            "name": "wan_2.1_vae.safetensors",
+        },
+        {
+            "id": "wan22_vae",
+            "label": "Wan 2.2 VAE",
+            "node": "VAELoader",
+            "input": "vae_name",
+            "name": "wan2.2_vae.safetensors",
+        },
+        {
+            "id": "ltx_2b_095",
+            "label": "LTX-Video 2B 0.9.5",
+            "node": "CheckpointLoaderSimple",
+            "input": "ckpt_name",
+            "name": "ltx-video-2b-v0.9.5.safetensors",
+        },
+        {
+            "id": "t5xxl_fp16",
+            "label": "T5 XXL fp16 文本编码器",
+            "node": "CLIPLoader",
+            "input": "clip_name",
+            "name": "t5xxl_fp16.safetensors",
+        },
+        {
+            "id": "i2v_lora_high",
+            "label": "I2V 4步 LoRA high noise",
+            "node": "LoraLoaderModelOnly",
+            "input": "lora_name",
+            "name": "Wan2.2/wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors",
+        },
+        {
+            "id": "i2v_lora_low",
+            "label": "I2V 4步 LoRA low noise",
+            "node": "LoraLoaderModelOnly",
+            "input": "lora_name",
+            "name": "Wan2.2/wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors",
+        },
+        {
+            "id": "t2v_lora_high",
+            "label": "T2V 4步 LoRA high noise",
+            "node": "LoraLoaderModelOnly",
+            "input": "lora_name",
+            "name": "Wan2.2/wan2.2_t2v_lightx2v_4steps_lora_v1.1_high_noise.safetensors",
+        },
+        {
+            "id": "t2v_lora_low",
+            "label": "T2V 4步 LoRA low noise",
+            "node": "LoraLoaderModelOnly",
+            "input": "lora_name",
+            "name": "Wan2.2/wan2.2_t2v_lightx2v_4steps_lora_v1.1_low_noise.safetensors",
+        },
+        {
+            "id": "realesrgan_x2",
+            "label": "RealESRGAN x2 视频超分权重",
+            "node": "UpscaleModelLoader",
+            "input": "model_name",
+            "name": "RealESRGAN_x2plus.pth",
+        },
+        {
+            "id": "ultrasharp_x4",
+            "label": "4x-UltraSharp 备用超分权重",
+            "node": "UpscaleModelLoader",
+            "input": "model_name",
+            "name": "4x-UltraSharp.pth",
+        },
+    ]
+    checks: list[dict[str, Any]] = []
+    for item in expectations:
+        options = node_input_options(object_info, item["node"], item["input"])
+        ok = model_option_matches(options, item["name"])
+        reason = "已出现在 ComfyUI 模型列表" if ok else "ComfyUI 模型列表未加载"
+        if object_info is None:
+            reason = "ComfyUI 未连接"
+        elif item["node"] not in object_info:
+            reason = f"节点未加载：{item['node']}"
+        checks.append(
+            {
+                **item,
+                "ok": ok,
+                "reason": reason,
+                "options_count": len(options),
+            }
+        )
+    return checks
+
+
+def build_load_diagnostics(
+    *,
+    paths: dict[str, Any],
+    assets: list[dict[str, Any]],
+    custom_nodes: list[dict[str, Any]],
+    node_checks: list[dict[str, Any]],
+    registry_checks: list[dict[str, Any]],
+    object_info: dict[str, Any] | None,
+) -> list[dict[str, str]]:
+    diagnostics: list[dict[str, str]] = []
+    if paths.get("base_dir_mismatch"):
+        diagnostics.append(
+            {
+                "level": "warn",
+                "title": "检测到 ComfyUI 实际目录和前端默认目录不同",
+                "message": f"本次会按 ComfyUI 正在使用的目录工作：{paths['base_dir']}。如果之前下载到 {BASE_DIR}，那些文件不会被当前 ComfyUI 自动加载。",
+            }
+        )
+
+    asset_by_id = {item["id"]: item for item in assets}
+    loaded_missing = [
+        item
+        for item in registry_checks
+        if not item["ok"] and asset_by_id.get(item["id"], {}).get("ok")
+    ]
+    if loaded_missing and object_info is not None:
+        labels = "、".join(item["label"] for item in loaded_missing[:4])
+        suffix = " 等" if len(loaded_missing) > 4 else ""
+        diagnostics.append(
+            {
+                "level": "blocked",
+                "title": "文件已存在，但 ComfyUI 模型列表没有加载",
+                "message": f"{labels}{suffix} 已在磁盘上，但没有出现在 ComfyUI 的模型下拉列表里。通常是下载目录不一致，或安装后还没有重启 ComfyUI。",
+            }
+        )
+
+    node_by_name = {item["name"]: item for item in node_checks}
+    custom_by_id = {item["id"]: item for item in custom_nodes}
+    if custom_by_id.get("video_helper_suite", {}).get("ok") and not (
+        node_by_name.get("VHS_LoadVideo", {}).get("ok") and node_by_name.get("VHS_VideoCombine", {}).get("ok")
+    ):
+        diagnostics.append(
+            {
+                "level": "blocked",
+                "title": "VideoHelperSuite 目录存在，但节点未加载",
+                "message": "这通常是 ComfyUI 没有重启，或自定义节点 requirements 没装进 ComfyUI 的 Python 环境。请重新执行一键安装缺失项，然后重启 ComfyUI。",
+            }
+        )
+    if custom_by_id.get("frame_interpolation", {}).get("ok") and not node_by_name.get("RIFE VFI", {}).get("ok"):
+        diagnostics.append(
+            {
+                "level": "blocked",
+                "title": "Frame-Interpolation 目录存在，但 RIFE 节点未加载",
+                "message": "安装脚本现在会自动尝试安装该节点的 requirements。安装后需要重启 ComfyUI 才会出现 RIFE VFI 节点。",
+            }
+        )
+
+    partial = [item for item in assets if item.get("exists") and not item.get("ok")]
+    if partial:
+        labels = "、".join(item["label"] for item in partial[:3])
+        diagnostics.append(
+            {
+                "level": "warn",
+                "title": "发现未完整下载的文件",
+                "message": f"{labels} 文件大小不匹配。一键安装会尝试断点续传，若仍失败请删除对应 partial 文件后重试。",
+            }
+        )
+
+    if not diagnostics:
+        diagnostics.append(
+            {
+                "level": "ok",
+                "title": "加载链路正常",
+                "message": "模型文件、自定义节点目录和 ComfyUI 加载状态没有发现明显不一致。",
+            }
+        )
+    return diagnostics
+
+
 def model_recommendations(
     *,
     os_info: dict[str, Any],
@@ -1275,7 +2160,9 @@ def model_recommendations(
     custom_nodes: list[dict[str, Any]],
     tool_checks: list[dict[str, Any]],
     node_checks: list[dict[str, Any]],
+    base_dir: Path | None = None,
 ) -> list[dict[str, Any]]:
+    base_dir = (base_dir or BASE_DIR).expanduser().resolve()
     asset_ok = {item["id"]: bool(item["ok"]) for item in assets}
     node_ok = {item["name"]: bool(item["ok"]) for item in node_checks}
     custom_ok = {item["id"]: bool(item["ok"]) for item in custom_nodes}
@@ -1285,6 +2172,11 @@ def model_recommendations(
     sum_vram = float(hardware.get("sum_vram_gb") or 0)
     gpu_count = int(hardware.get("gpu_count") or 0)
     is_macos = os_info["name"] == "Darwin"
+    platform_strategy = hardware.get("platform_strategy")
+    mac_tier = str(hardware.get("mac_video_tier") or "")
+    mac_info = hardware.get("mac") or {}
+    mac_memory = float(mac_info.get("unified_memory_gb") or hardware.get("system_memory_gb") or 0)
+    mac_mps_ready = bool(hardware.get("front_torch_mps_ready") or hardware.get("comfy_torch_mps_ready"))
 
     def all_assets(*ids: str) -> bool:
         return all(asset_ok.get(item) for item in ids)
@@ -1294,8 +2186,8 @@ def model_recommendations(
 
     recommendations: list[dict[str, Any]] = []
 
-    has_flux = (BASE_DIR / "models" / "diffusion_models" / "flux2_dev_fp8mixed.safetensors").exists()
-    has_sdxl = any((BASE_DIR / "models" / "checkpoints").glob("*.safetensors"))
+    has_flux = (base_dir / "models" / "diffusion_models" / "flux2_dev_fp8mixed.safetensors").exists()
+    has_sdxl = any((base_dir / "models" / "checkpoints").glob("*.safetensors"))
     keyframe_models = ["上传 PNG/JPG 关键帧"]
     if has_flux:
         keyframe_models.insert(0, "Flux/Flux2 本地生图")
@@ -1313,7 +2205,40 @@ def model_recommendations(
     ti2v_ready = all_assets("ti2v_5b", "umt5", "wan22_vae") and all_nodes(
         "Wan22ImageToVideoLatent", "UNETLoader", "CLIPLoader", "VAELoader"
     )
-    if not ti2v_ready:
+    ltx_ready = all_assets("ltx_2b_095", "t5xxl_fp16") and all_nodes(
+        "CheckpointLoaderSimple",
+        "CLIPLoader",
+        "CLIPTextEncode",
+        "LTXVConditioning",
+        "LTXVScheduler",
+        "LTXVImgToVideo",
+        "SamplerCustom",
+        "VAEDecode",
+        "CreateVideo",
+        "SaveVideo",
+    )
+    if platform_strategy == "mac_mps":
+        if ltx_ready and mac_mps_ready:
+            status_text = "ok"
+            reason = f"检测到 Apple Silicon 与约 {mac_memory:g}GB 统一内存，默认用 LTX 短镜头跑通 Mac 视频生成。"
+        elif ltx_ready:
+            status_text = "warn"
+            reason = "LTX 模型和节点已在，但当前没有确认 ComfyUI 的 MPS torch 状态；可先跑低分辨率 smoke test。"
+        else:
+            status_text = "warn"
+            reason = "Mac 默认走 LTX 小模型路线；一键配置会先补齐 LTX 2B 与 T5 文本编码器。"
+        recommended_ltx = ["Mac LTX I2V 低档/均衡档", "512x320 或 576x320", "2 到 3 秒短镜头"]
+        if mac_tier in {"mac_ltx_quality", "mac_wan5b_480p", "mac_wan5b_720p_experimental"}:
+            recommended_ltx = ["Mac LTX I2V 质量档", "704x416 或 768x512", "2 到 4 秒短镜头"]
+        recommendations.append(
+            {
+                "step": "试镜头",
+                "status": status_text,
+                "recommended": recommended_ltx,
+                "reason": reason,
+            }
+        )
+    elif not ti2v_ready:
         status_text = "blocked"
         reason = "TI2V-5B 所需模型或 ComfyUI 节点不完整。"
     elif accelerator == "cuda" and max_vram >= 24:
@@ -1328,14 +2253,15 @@ def model_recommendations(
     else:
         status_text = "blocked"
         reason = "未检测到适合本地视频生成的 GPU 后端。"
-    recommendations.append(
-        {
-            "step": "试镜头",
-            "status": status_text,
-            "recommended": ["Wan2.2 TI2V-5B 720P", "横屏 1280x704 / 竖屏 704x1280", "3 到 5 秒短镜头"],
-            "reason": reason,
-        }
-    )
+    if platform_strategy != "mac_mps":
+        recommendations.append(
+            {
+                "step": "试镜头",
+                "status": status_text,
+                "recommended": ["Wan2.2 TI2V-5B 720P", "横屏 1280x704 / 竖屏 704x1280", "3 到 5 秒短镜头"],
+                "reason": reason,
+            }
+        )
 
     i2v_ready = all_assets(
         "i2v_high",
@@ -1345,7 +2271,32 @@ def model_recommendations(
         "i2v_lora_high",
         "i2v_lora_low",
     ) and all_nodes("WanImageToVideo", "KSamplerAdvanced", "LoraLoaderModelOnly")
-    if not i2v_ready:
+    if platform_strategy == "mac_mps":
+        if mac_tier == "mac_wan5b_720p_experimental":
+            formal_status = "warn" if ti2v_ready else "warn"
+            formal_recommended = ["Wan2.2 TI2V-5B 720P 高内存实验档", "优先关键帧 I2V/TI2V", "先跑 smoke test"]
+            formal_reason = "96GB/128GB+ Apple Silicon 可以尝试 Wan5B 720P 短镜头，但仍需通过 MPS dtype 与节点预检；A14B 不默认开放。"
+        elif mac_tier == "mac_wan5b_480p":
+            formal_status = "warn"
+            formal_recommended = ["Wan2.2 TI2V-5B 480P 实验档", "短镜头", "必要时降低帧数"]
+            formal_reason = "48GB/64GB Apple Silicon 可尝试 Wan5B 480P；720P 仍标为实验。"
+        else:
+            formal_status = "ok" if ltx_ready and mac_mps_ready else "warn"
+            if mac_tier == "mac_ltx_low":
+                formal_recommended = ["Mac LTX I2V 低档", "512x320", "1 到 2 秒短镜头"]
+                formal_reason = "该 Mac 档位优先保证跑通，正式画质通过更短分镜、去闪烁和后期超分补足。"
+            else:
+                formal_recommended = ["Mac LTX I2V 质量档", "短镜头分镜", "后期超分"]
+                formal_reason = "该 Mac 档位更适合 LTX 小模型短片段，正式画质通过分镜、去闪烁和超分补足。"
+        recommendations.append(
+            {
+                "step": "正式片段",
+                "status": formal_status,
+                "recommended": formal_recommended,
+                "reason": formal_reason,
+            }
+        )
+    elif not i2v_ready:
         status_text = "blocked"
         reason = "A14B I2V 所需模型、LoRA、VAE 或节点不完整。"
     elif accelerator == "cuda" and max_vram >= 80:
@@ -1360,14 +2311,15 @@ def model_recommendations(
     else:
         status_text = "blocked"
         reason = "A14B 正片建议至少 80GB 单卡显存；当前环境不建议直接跑 720P。"
-    recommendations.append(
-        {
-            "step": "正式片段",
-            "status": status_text,
-            "recommended": ["Wan2.2 I2V-A14B fp8 + 4步 LoRA", "优先图生视频", "720P 3 到 5 秒"],
-            "reason": reason,
-        }
-    )
+    if platform_strategy != "mac_mps":
+        recommendations.append(
+            {
+                "step": "正式片段",
+                "status": status_text,
+                "recommended": ["Wan2.2 I2V-A14B fp8 + 4步 LoRA", "优先图生视频", "720P 3 到 5 秒"],
+                "reason": reason,
+            }
+        )
 
     t2v_ready = all_assets(
         "t2v_high",
@@ -1377,16 +2329,26 @@ def model_recommendations(
         "t2v_lora_high",
         "t2v_lora_low",
     ) and all_nodes("EmptyHunyuanLatentVideo", "KSamplerAdvanced", "LoraLoaderModelOnly")
-    recommendations.append(
-        {
-            "step": "无图生视频",
-            "status": "ok" if t2v_ready and accelerator == "cuda" and max_vram >= 80 else "warn" if t2v_ready else "blocked",
-            "recommended": ["Wan2.2 T2V-A14B fp8 + 4步 LoRA"],
-            "reason": "可用，但品牌、人物和空间一致性不如 I2V；建议只在没有关键帧时使用。"
-            if t2v_ready
-            else "T2V-A14B 所需模型或节点不完整。",
-        }
-    )
+    if platform_strategy == "mac_mps":
+        recommendations.append(
+            {
+                "step": "无图生视频",
+                "status": "ok" if ltx_ready and mac_mps_ready else "warn",
+                "recommended": ["Mac LTX T2V 低档/均衡档"],
+                "reason": "Mac 上也可以文字生视频，但仍建议优先 I2V，人物和空间更可控。",
+            }
+        )
+    else:
+        recommendations.append(
+            {
+                "step": "无图生视频",
+                "status": "ok" if t2v_ready and accelerator == "cuda" and max_vram >= 80 else "warn" if t2v_ready else "blocked",
+                "recommended": ["Wan2.2 T2V-A14B fp8 + 4步 LoRA"],
+                "reason": "可用，但品牌、人物和空间一致性不如 I2V；建议只在没有关键帧时使用。"
+                if t2v_ready
+                else "T2V-A14B 所需模型或节点不完整。",
+            }
+        )
 
     deflicker_ok = tool_ok.get("ffmpeg") and tool_ok.get("ffmpeg:deflicker") and tool_ok.get("ffmpeg:hqdn3d")
     recommendations.append(
@@ -1445,7 +2407,9 @@ def workflow_model_options(
     custom_nodes: list[dict[str, Any]],
     tool_checks: list[dict[str, Any]],
     node_checks: list[dict[str, Any]],
+    base_dir: Path | None = None,
 ) -> dict[str, Any]:
+    base_dir = (base_dir or BASE_DIR).expanduser().resolve()
     asset_ok = {item["id"]: bool(item["ok"]) for item in assets}
     node_ok = {item["name"]: bool(item["ok"]) for item in node_checks}
     custom_ok = {item["id"]: bool(item["ok"]) for item in custom_nodes}
@@ -1453,6 +2417,11 @@ def workflow_model_options(
     accelerator = hardware.get("accelerator")
     max_vram = float(hardware.get("max_vram_gb") or 0)
     is_macos = os_info["name"] == "Darwin"
+    platform_strategy = hardware.get("platform_strategy")
+    mac_tier = str(hardware.get("mac_video_tier") or "")
+    mac_info = hardware.get("mac") or {}
+    mac_memory = float(mac_info.get("unified_memory_gb") or hardware.get("system_memory_gb") or 0)
+    mac_mps_ready = bool(hardware.get("front_torch_mps_ready") or hardware.get("comfy_torch_mps_ready"))
 
     def all_assets(*ids: str) -> bool:
         return all(asset_ok.get(item) for item in ids)
@@ -1470,6 +2439,20 @@ def workflow_model_options(
         if is_macos and accelerator == "mps" and mac_warn:
             return "warn"
         return "blocked"
+
+    def mac_ltx_status(ready: bool) -> str:
+        if platform_strategy != "mac_mps":
+            return "blocked"
+        if ready and mac_mps_ready:
+            return "ok"
+        return "warn"
+
+    def mac_wan5b_status(ready: bool, *, min_memory_gb: float) -> str:
+        if platform_strategy != "mac_mps" or mac_memory < min_memory_gb:
+            return "blocked"
+        if ready and mac_mps_ready:
+            return "warn"
+        return "warn"
 
     def option(
         *,
@@ -1522,11 +2505,23 @@ def workflow_model_options(
         "t2v_lora_high",
         "t2v_lora_low",
     ) and all_nodes("EmptyHunyuanLatentVideo", "KSamplerAdvanced", "LoraLoaderModelOnly")
+    ltx_ready = all_assets("ltx_2b_095", "t5xxl_fp16") and all_nodes(
+        "CheckpointLoaderSimple",
+        "CLIPLoader",
+        "CLIPTextEncode",
+        "LTXVConditioning",
+        "LTXVScheduler",
+        "LTXVImgToVideo",
+        "SamplerCustom",
+        "VAEDecode",
+        "CreateVideo",
+        "SaveVideo",
+    )
     deflicker_ready = bool(tool_ok.get("ffmpeg") and tool_ok.get("ffmpeg:deflicker") and tool_ok.get("ffmpeg:hqdn3d"))
     rife_ready = bool(asset_ok.get("rife49") and custom_ok.get("frame_interpolation") and all_nodes("RIFE VFI"))
     upscale_ready = all_nodes("UpscaleModelLoader", "ImageUpscaleWithModel")
-    has_flux = (BASE_DIR / "models" / "diffusion_models" / "flux2_dev_fp8mixed.safetensors").exists()
-    has_sdxl = any((BASE_DIR / "models" / "checkpoints").glob("*.safetensors"))
+    has_flux = (base_dir / "models" / "diffusion_models" / "flux2_dev_fp8mixed.safetensors").exists()
+    has_sdxl = any((base_dir / "models" / "checkpoints").glob("*.safetensors"))
 
     options = {
         "keyframe": [
@@ -1562,6 +2557,33 @@ def workflow_model_options(
         ],
         "draft": [
             option(
+                id="mac_ltx_low_i2v",
+                label="Mac LTX I2V 低档",
+                step="draft",
+                mode="ltx_i2v",
+                status=mac_ltx_status(ltx_ready),
+                reason="Apple Silicon 低内存或首次 smoke test 档；小分辨率、短镜头，优先验证能跑通。",
+                defaults={"width": 512, "height": 320, "length": 25, "fps": 24, "steps": 12, "cfg": 3.0},
+            ),
+            option(
+                id="mac_ltx_balanced_i2v",
+                label="Mac LTX I2V 均衡档",
+                step="draft",
+                mode="ltx_i2v",
+                status=mac_ltx_status(ltx_ready),
+                reason="16GB 到 32GB+ Apple Silicon 的默认 Mac 视频草稿路线，速度和稳定性优先。",
+                defaults={"width": 576, "height": 320, "length": 49, "fps": 24, "steps": 16, "cfg": 3.0},
+            ),
+            option(
+                id="mac_ltx_quality_i2v",
+                label="Mac LTX I2V 质量档",
+                step="draft",
+                mode="ltx_i2v",
+                status=mac_ltx_status(ltx_ready),
+                reason="高内存 Apple Silicon 可先用 LTX 质量档试动作和镜头，再决定是否切 Wan5B。",
+                defaults={"width": 704, "height": 416, "length": 49, "fps": 24, "steps": 18, "cfg": 3.0},
+            ),
+            option(
                 id="wan22_ti2v_5b_720p",
                 label="Wan2.2 TI2V-5B 720P",
                 step="draft",
@@ -1581,6 +2603,52 @@ def workflow_model_options(
             ),
         ],
         "final": [
+            option(
+                id="mac_ltx_low_i2v",
+                label="Mac LTX I2V 低档",
+                step="final",
+                mode="ltx_i2v",
+                status=mac_ltx_status(ltx_ready),
+                reason="8GB/16GB Apple Silicon 的保守正式片段档。短镜头、小分辨率，优先保证跑通。",
+                defaults={"width": 512, "height": 320, "length": 25, "fps": 24, "steps": 12, "cfg": 3.0},
+            ),
+            option(
+                id="mac_ltx_quality_i2v",
+                label="Mac LTX I2V 质量档",
+                step="final",
+                mode="ltx_i2v",
+                status=mac_ltx_status(ltx_ready),
+                reason="Mac 默认正式片段路线。先用关键帧稳定构图，再靠短镜头、去闪烁和超分补质量。",
+                defaults={"width": 704, "height": 416, "length": 49, "fps": 24, "steps": 18, "cfg": 3.0},
+            ),
+            option(
+                id="mac_ltx_balanced_t2v",
+                label="Mac LTX T2V 均衡档",
+                step="final",
+                mode="ltx_t2v",
+                status=mac_ltx_status(ltx_ready),
+                reason="没有关键帧时可用；随机性更强，仍建议先做关键帧再 I2V。",
+                defaults={"width": 576, "height": 320, "length": 49, "fps": 24, "steps": 16, "cfg": 3.0},
+                uses_image=False,
+            ),
+            option(
+                id="mac_wan5b_480p",
+                label="Mac Wan2.2 TI2V-5B 480P 实验档",
+                step="final",
+                mode="ti2v_5b",
+                status=mac_wan5b_status(ti2v_ready, min_memory_gb=24),
+                reason="高内存 Apple Silicon 的质量尝试档。需要先通过节点、模型名和 MPS dtype 预检。",
+                defaults={"width": 832, "height": 480, "length": 49, "fps": 24, "steps": 20, "cfg": 5.0},
+            ),
+            option(
+                id="mac_wan5b_720p_experimental",
+                label="Mac Wan2.2 TI2V-5B 720P 高内存实验档",
+                step="final",
+                mode="ti2v_5b",
+                status=mac_wan5b_status(ti2v_ready, min_memory_gb=96),
+                reason="96GB/128GB+ Apple Silicon 可尝试的短镜头档；A14B 仍不作为 Mac 默认推荐。",
+                defaults={"width": 1280, "height": 704, "length": 49, "fps": 24, "steps": 20, "cfg": 5.0},
+            ),
             option(
                 id="wan22_i2v_a14b_720p",
                 label="Wan2.2 I2V-A14B 720P",
@@ -1706,16 +2774,29 @@ def workflow_model_options(
                 return item["id"]
         return fallback
 
-    if accelerator == "cuda" and max_vram >= 80:
+    if platform_strategy == "mac_mps":
+        if mac_tier == "mac_wan5b_720p_experimental":
+            final_default = "mac_wan5b_720p_experimental"
+            draft_default = "mac_ltx_quality_i2v"
+        elif mac_tier == "mac_wan5b_480p":
+            final_default = "mac_wan5b_480p"
+            draft_default = "mac_ltx_quality_i2v"
+        elif mac_tier == "mac_ltx_quality":
+            final_default = "mac_ltx_quality_i2v"
+            draft_default = "mac_ltx_balanced_i2v"
+        elif mac_tier == "mac_ltx_balanced":
+            final_default = "mac_ltx_quality_i2v"
+            draft_default = "mac_ltx_balanced_i2v"
+        else:
+            final_default = "mac_ltx_low_i2v"
+            draft_default = "mac_ltx_low_i2v"
+    elif accelerator == "cuda" and max_vram >= 80:
         final_default = "wan22_i2v_a14b_720p"
         draft_default = "wan22_ti2v_5b_720p"
     elif accelerator == "cuda" and max_vram >= 48:
         final_default = "wan22_i2v_a14b_480p"
         draft_default = "wan22_ti2v_5b_720p"
     elif accelerator == "cuda" and max_vram >= 16:
-        final_default = "wan22_ti2v_5b_final_480p"
-        draft_default = "wan22_ti2v_5b_480p"
-    elif is_macos and accelerator == "mps":
         final_default = "wan22_ti2v_5b_final_480p"
         draft_default = "wan22_ti2v_5b_480p"
     else:
@@ -1750,7 +2831,7 @@ def workflow_model_options(
         },
         {
             "hardware": "Apple Silicon / macOS",
-            "route": "优先关键帧、剪辑、ffmpeg 后期；可尝试 TI2V-5B 480P 实验档，或另接 LTX-Video / AnimateDiff / CoreML 轻量工作流。",
+            "route": "8GB/16GB 默认 Mac LTX 低档；24GB-36GB 用 LTX 均衡/质量档；48GB+ 可试 Wan2.2 TI2V-5B 480P；96GB/128GB+ 可试 720P 实验档。",
         },
         {
             "hardware": "CPU / 无独显",
@@ -1778,6 +2859,71 @@ def installable_missing_items(assets: list[dict[str, Any]], custom_nodes: list[d
                 }
             )
     return missing
+
+
+INSTALL_PROFILE_ASSETS = {
+    "cuda-full": {
+        "ti2v_5b",
+        "i2v_high",
+        "i2v_low",
+        "t2v_high",
+        "t2v_low",
+        "umt5",
+        "wan21_vae",
+        "wan22_vae",
+        "i2v_lora_high",
+        "i2v_lora_low",
+        "t2v_lora_high",
+        "t2v_lora_low",
+        "rife49",
+        "realesrgan_x2",
+        "ultrasharp_x4",
+        "sample_keyframe",
+    },
+    "mac-low": {"ltx_2b_095", "t5xxl_fp16", "sample_keyframe"},
+    "mac-balanced": {"ltx_2b_095", "t5xxl_fp16", "sample_keyframe"},
+    "mac-wan5b": {"ltx_2b_095", "t5xxl_fp16", "ti2v_5b", "umt5", "wan22_vae", "sample_keyframe"},
+    "post-only": {"rife49", "realesrgan_x2", "ultrasharp_x4", "sample_keyframe"},
+}
+
+INSTALL_PROFILE_CUSTOM_NODES = {
+    "cuda-full": {"video_helper_suite", "frame_interpolation"},
+    "mac-low": set(),
+    "mac-balanced": set(),
+    "mac-wan5b": set(),
+    "post-only": {"video_helper_suite", "frame_interpolation"},
+}
+
+
+def normalize_install_profile(profile: str | None) -> str:
+    profile = (profile or "auto").strip()
+    if profile in {"cuda-full", "mac-low", "mac-balanced", "mac-wan5b", "post-only"}:
+        return profile
+    return "auto"
+
+
+def install_profile_for_hardware(hardware: dict[str, Any]) -> str:
+    strategy = hardware.get("platform_strategy")
+    tier = str(hardware.get("mac_video_tier") or "")
+    if strategy == "mac_mps":
+        if tier.startswith("mac_wan5b"):
+            return "mac-wan5b"
+        if tier in {"mac_ltx_balanced", "mac_ltx_quality"}:
+            return "mac-balanced"
+        return "mac-low"
+    if strategy == "mac_post_only" or strategy == "post_only":
+        return "post-only"
+    return "cuda-full"
+
+
+def filter_assets_for_install_profile(assets: list[dict[str, Any]], profile: str) -> list[dict[str, Any]]:
+    allowed = INSTALL_PROFILE_ASSETS.get(profile, INSTALL_PROFILE_ASSETS["cuda-full"])
+    return [item for item in assets if item.get("id") in allowed]
+
+
+def filter_custom_nodes_for_install_profile(custom_nodes: list[dict[str, Any]], profile: str) -> list[dict[str, Any]]:
+    allowed = INSTALL_PROFILE_CUSTOM_NODES.get(profile, INSTALL_PROFILE_CUSTOM_NODES["cuda-full"])
+    return [item for item in custom_nodes if item.get("id") in allowed]
 
 
 def install_command_text(command: list[str]) -> str:
@@ -1841,11 +2987,18 @@ def comfy_listen_host() -> str:
     return parsed.hostname or "127.0.0.1"
 
 
-def bootstrap_status_payload(comfy_connected: bool, comfy_error: str = "") -> dict[str, Any]:
+def bootstrap_status_payload(
+    comfy_connected: bool,
+    comfy_error: str = "",
+    paths: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     main_py = COMFY_INSTALL_DIR / "main.py"
     python = comfy_venv_python()
+    paths = paths or configured_comfy_paths()
     return {
         "base_dir": str(BASE_DIR),
+        "active_base_dir": str(paths["base_dir"]),
+        "paths": serializable_comfy_paths(paths),
         "install_dir": str(COMFY_INSTALL_DIR),
         "comfy_url": COMFY_URL,
         "comfy_connected": comfy_connected,
@@ -1902,11 +3055,12 @@ def run_comfyui_worker(job_id: str, command: list[str]) -> None:
         job["log"].append(f"ComfyUI 启动失败：{exc}")
 
 
-def run_deflicker(source: Path) -> dict[str, Any]:
+def run_deflicker(source: Path, paths: dict[str, Any] | None = None) -> dict[str, Any]:
     if source.suffix.lower() not in VIDEO_EXTENSIONS:
         raise HTTPException(status_code=400, detail="闪烁修复只支持视频文件")
 
-    output_dir = OUTPUT_DIR / "wan22_frontend"
+    paths = paths or configured_comfy_paths()
+    output_dir = Path(paths["output_dir"]) / "wan22_frontend"
     output_dir.mkdir(parents=True, exist_ok=True)
     output = output_dir / f"Deflicker_{time.strftime('%Y-%m-%d_%H%M%S')}_{uuid.uuid4().hex[:6]}.mp4"
 
@@ -1947,12 +3101,17 @@ def run_deflicker(source: Path) -> dict[str, Any]:
         detail = result.stderr.strip()[-2000:] or "ffmpeg 闪烁修复失败"
         raise HTTPException(status_code=500, detail=detail)
 
-    return output_media_item(output)
+    return output_media_item(output, paths)
 
 
 @app.get("/")
 async def index() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon() -> Response:
+    return Response(status_code=204)
 
 
 @app.get("/api/status")
@@ -2010,9 +3169,20 @@ async def environment() -> dict[str, Any]:
     except HTTPException as exc:
         queue_error = str(exc.detail)
 
-    assets = collect_asset_checks()
-    custom_nodes = collect_custom_node_checks()
+    comfy_paths = comfy_paths_from_system_stats(system_stats)
+    active_base_dir = Path(comfy_paths["base_dir"])
+    assets = collect_asset_checks(active_base_dir)
+    custom_nodes = collect_custom_node_checks(active_base_dir)
     node_checks = collect_node_checks(object_info)
+    registry_checks = collect_model_registry_checks(object_info)
+    diagnostics = build_load_diagnostics(
+        paths=comfy_paths,
+        assets=assets,
+        custom_nodes=custom_nodes,
+        node_checks=node_checks,
+        registry_checks=registry_checks,
+        object_info=object_info,
+    )
 
     try:
         ffmpeg_path = find_ffmpeg()
@@ -2027,6 +3197,27 @@ async def environment() -> dict[str, Any]:
         {"name": "ffmpeg:hqdn3d", "ok": ffmpeg_has_filter("hqdn3d"), "path": ffmpeg_path},
     ]
     hardware = build_hardware_summary(system_stats)
+    install_profile = install_profile_for_hardware(hardware)
+    mac_info = hardware.get("mac") or {}
+    if mac_info.get("is_macos") and mac_info.get("apple_silicon"):
+        if not (hardware.get("torch") or {}).get("available"):
+            diagnostics.insert(
+                0,
+                {
+                    "level": "warn",
+                    "title": "前端 Python 未安装 torch",
+                    "message": "这不代表 ComfyUI 不能使用 MPS。系统会单独检测 ComfyUI venv 的 torch.backends.mps 状态。",
+                },
+            )
+        if not (hardware.get("comfy_torch") or {}).get("exists"):
+            diagnostics.insert(
+                0,
+                {
+                    "level": "warn",
+                    "title": "ComfyUI Python 尚未确认",
+                    "message": "未找到前端配置的 ComfyUI venv；若使用 ComfyUI Desktop，请先启动后刷新，系统会从 /system_stats 和 /object_info 继续预检。",
+                },
+            )
     comfy_system = (system_stats or {}).get("system", {})
     comfy_info = {
         "url": COMFY_URL,
@@ -2045,6 +3236,7 @@ async def environment() -> dict[str, Any]:
         custom_nodes=custom_nodes,
         tool_checks=tool_checks,
         node_checks=node_checks,
+        base_dir=active_base_dir,
     )
     model_options = workflow_model_options(
         os_info=os_info,
@@ -2053,8 +3245,21 @@ async def environment() -> dict[str, Any]:
         custom_nodes=custom_nodes,
         tool_checks=tool_checks,
         node_checks=node_checks,
+        base_dir=active_base_dir,
     )
-    missing_installable = installable_missing_items(assets, custom_nodes)
+    install_assets = filter_assets_for_install_profile(assets, install_profile)
+    install_custom_nodes = filter_custom_nodes_for_install_profile(custom_nodes, install_profile)
+    missing_installable = installable_missing_items(install_assets, install_custom_nodes)
+    repair_needed = any(item.get("level") == "blocked" for item in diagnostics)
+    if repair_needed and not missing_installable:
+        missing_installable.append(
+            {
+                "id": "repair_loaded_assets",
+                "label": "修复已下载但未加载的节点/模型",
+                "path": str(active_base_dir),
+                "reason": "重新校验文件、安装自定义节点 requirements，并提示重启 ComfyUI。",
+            }
+        )
     core_steps = {"试镜头", "正式片段", "闪烁修复", "插帧", "清晰度增强"}
     blocked = [
         item
@@ -2064,29 +3269,35 @@ async def environment() -> dict[str, Any]:
 
     return {
         "ok": bool(comfy_info["connected"] and not blocked),
-        "base_dir": str(BASE_DIR),
+        "base_dir": str(active_base_dir),
+        "configured_base_dir": str(BASE_DIR),
         "workspace_dir": str(WORKSPACE_DIR),
+        "paths": serializable_comfy_paths(comfy_paths),
         "os": os_info,
         "comfy": comfy_info,
         "hardware": hardware,
+        "install_profile": install_profile,
         "assets": assets,
         "custom_nodes": custom_nodes,
         "nodes": node_checks,
+        "model_registry": registry_checks,
+        "diagnostics": diagnostics,
         "tools": tool_checks,
         "recommendations": recommendations,
         "model_options": model_options,
         "missing_installable": missing_installable,
         "needs_install": bool(missing_installable),
+        "repair_needed": repair_needed,
         "blocked": blocked,
-        "install_note": "一键安装会下载缺失模型、RIFE/超分权重，并补齐两个 ComfyUI 自定义节点仓库；安装后需要重启 ComfyUI。",
+        "install_note": f"一键安装将按 {install_profile} 档位下载缺失文件；安装后需要重启 ComfyUI，让模型列表重新加载。",
     }
 
 
 @app.get("/api/bootstrap")
 async def bootstrap_status() -> dict[str, Any]:
     try:
-        await comfy_get("/system_stats")
-        return bootstrap_status_payload(True)
+        system_stats = await comfy_get("/system_stats")
+        return bootstrap_status_payload(True, paths=comfy_paths_from_system_stats(system_stats))
     except HTTPException as exc:
         return bootstrap_status_payload(False, str(exc.detail))
 
@@ -2201,26 +3412,57 @@ async def start_comfyui() -> dict[str, Any]:
 
 
 @app.post("/api/install")
-async def install_workflow_assets() -> dict[str, Any]:
-    assets = collect_asset_checks()
-    custom_nodes = collect_custom_node_checks()
-    missing = installable_missing_items(assets, custom_nodes)
+async def install_workflow_assets(profile: str = "auto") -> dict[str, Any]:
+    comfy_paths = await active_comfy_paths()
+    active_base_dir = Path(comfy_paths["base_dir"])
+    assets = collect_asset_checks(active_base_dir)
+    custom_nodes = collect_custom_node_checks(active_base_dir)
+    normalized_profile = normalize_install_profile(profile)
+    try:
+        system_stats_for_profile = await comfy_get("/system_stats")
+    except HTTPException:
+        system_stats_for_profile = None
+    hardware = build_hardware_summary(system_stats_for_profile)
+    if normalized_profile == "auto":
+        normalized_profile = install_profile_for_hardware(hardware)
+    install_assets = filter_assets_for_install_profile(assets, normalized_profile)
+    install_custom_nodes = filter_custom_nodes_for_install_profile(custom_nodes, normalized_profile)
+    missing = installable_missing_items(install_assets, install_custom_nodes)
+    object_info: dict[str, Any] | None = None
+    try:
+        object_info = await comfy_get("/object_info")
+    except HTTPException:
+        object_info = None
+    diagnostics = build_load_diagnostics(
+        paths=comfy_paths,
+        assets=assets,
+        custom_nodes=custom_nodes,
+        node_checks=collect_node_checks(object_info),
+        registry_checks=collect_model_registry_checks(object_info),
+        object_info=object_info,
+    )
+    repair_needed = any(item.get("level") == "blocked" for item in diagnostics)
     job_id = uuid.uuid4().hex
     job = {
         "id": job_id,
         "status": "queued",
         "completed": False,
         "created_at": now_ms(),
+        "base_dir": str(active_base_dir),
+        "paths": serializable_comfy_paths(comfy_paths),
+        "install_profile": normalized_profile,
         "missing": missing,
+        "repair_needed": repair_needed,
         "log": [],
     }
     INSTALL_JOBS[job_id] = job
 
-    if not missing:
+    if not missing and not repair_needed:
         job["status"] = "success"
         job["completed"] = True
         job["finished_at"] = now_ms()
         job["skipped"] = True
+        job["log"].append(f"安装目标目录：{active_base_dir}")
         job["log"].append("所有可一键安装的模型、权重和自定义节点都已存在，无需下载。")
         return job
 
@@ -2232,8 +3474,24 @@ async def install_workflow_assets() -> dict[str, Any]:
         job["log"].append(f"安装脚本不存在：{script}")
         return job
 
-    command = [sys.executable, "-u", str(script), "--base-dir", str(BASE_DIR)]
+    command = [
+        sys.executable,
+        "-u",
+        str(script),
+        "--base-dir",
+        str(active_base_dir),
+        "--profile",
+        normalized_profile,
+    ]
+    python = comfy_venv_python()
+    if python.exists():
+        command.extend(["--comfy-python", str(python)])
     job["command"] = install_command_text(command)
+    if comfy_paths.get("base_dir_mismatch"):
+        job["log"].append(f"检测到 ComfyUI 正在使用 {active_base_dir}，本次安装会写入该目录。")
+        job["log"].append(f"前端默认目录是 {BASE_DIR}，如之前下载到默认目录，当前 ComfyUI 不会自动扫描。")
+    if repair_needed and not missing:
+        job["log"].append("未发现缺失文件，但发现已下载未加载的问题；将重新安装自定义节点依赖并校验文件。")
     thread = threading.Thread(target=run_install_worker, args=(job_id, command), daemon=True)
     thread.start()
     return job
@@ -2249,6 +3507,9 @@ async def get_install_job(job_id: str) -> dict[str, Any]:
 
 @app.get("/api/validate")
 async def validate() -> dict[str, Any]:
+    comfy_paths = await active_comfy_paths()
+    active_base_dir = Path(comfy_paths["base_dir"])
+    input_dir = Path(comfy_paths["input_dir"])
     required_nodes = [
         "SaveVideo",
         "CreateVideo",
@@ -2265,6 +3526,15 @@ async def validate() -> dict[str, Any]:
         "VAEDecodeTiled",
         "LoraLoaderModelOnly",
         "ModelSamplingSD3",
+        "CheckpointLoaderSimple",
+        "EmptyLTXVLatentVideo",
+        "LTXVConditioning",
+        "LTXVScheduler",
+        "LTXVImgToVideo",
+        "LTXVPreprocess",
+        "SamplerCustom",
+        "KSamplerSelect",
+        "VAEDecode",
         "VHS_LoadVideo",
         "VHS_VideoCombine",
         "RIFE VFI",
@@ -2275,22 +3545,24 @@ async def validate() -> dict[str, Any]:
     node_checks = [{"name": name, "ok": name in object_info} for name in required_nodes]
 
     required_files = [
-        BASE_DIR / "models" / "diffusion_models" / "Wan2.2" / "wan2.2_ti2v_5B_fp16.safetensors",
-        BASE_DIR / "models" / "diffusion_models" / "Wan2.2" / "wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors",
-        BASE_DIR / "models" / "diffusion_models" / "Wan2.2" / "wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors",
-        BASE_DIR / "models" / "diffusion_models" / "Wan2.2" / "wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors",
-        BASE_DIR / "models" / "diffusion_models" / "Wan2.2" / "wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors",
-        BASE_DIR / "models" / "text_encoders" / "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
-        BASE_DIR / "models" / "vae" / "wan_2.1_vae.safetensors",
-        BASE_DIR / "models" / "vae" / "wan2.2_vae.safetensors",
-        BASE_DIR / "models" / "loras" / "Wan2.2" / "wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors",
-        BASE_DIR / "models" / "loras" / "Wan2.2" / "wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors",
-        BASE_DIR / "models" / "loras" / "Wan2.2" / "wan2.2_t2v_lightx2v_4steps_lora_v1.1_high_noise.safetensors",
-        BASE_DIR / "models" / "loras" / "Wan2.2" / "wan2.2_t2v_lightx2v_4steps_lora_v1.1_low_noise.safetensors",
-        BASE_DIR / "custom_nodes" / "ComfyUI-Frame-Interpolation" / "ckpts" / "rife" / "rife49.pth",
-        BASE_DIR / "models" / "upscale_models" / "RealESRGAN_x2plus.pth",
-        BASE_DIR / "models" / "upscale_models" / "4x-UltraSharp.pth",
-        INPUT_DIR / DEFAULT_IMAGE,
+        active_base_dir / "models" / "diffusion_models" / "Wan2.2" / "wan2.2_ti2v_5B_fp16.safetensors",
+        active_base_dir / "models" / "diffusion_models" / "Wan2.2" / "wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors",
+        active_base_dir / "models" / "diffusion_models" / "Wan2.2" / "wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors",
+        active_base_dir / "models" / "diffusion_models" / "Wan2.2" / "wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors",
+        active_base_dir / "models" / "diffusion_models" / "Wan2.2" / "wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors",
+        active_base_dir / "models" / "text_encoders" / "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+        active_base_dir / "models" / "vae" / "wan_2.1_vae.safetensors",
+        active_base_dir / "models" / "vae" / "wan2.2_vae.safetensors",
+        active_base_dir / "models" / "checkpoints" / "ltx-video-2b-v0.9.5.safetensors",
+        active_base_dir / "models" / "text_encoders" / "t5xxl_fp16.safetensors",
+        active_base_dir / "models" / "loras" / "Wan2.2" / "wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors",
+        active_base_dir / "models" / "loras" / "Wan2.2" / "wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors",
+        active_base_dir / "models" / "loras" / "Wan2.2" / "wan2.2_t2v_lightx2v_4steps_lora_v1.1_high_noise.safetensors",
+        active_base_dir / "models" / "loras" / "Wan2.2" / "wan2.2_t2v_lightx2v_4steps_lora_v1.1_low_noise.safetensors",
+        active_base_dir / "custom_nodes" / "ComfyUI-Frame-Interpolation" / "ckpts" / "rife" / "rife49.pth",
+        active_base_dir / "models" / "upscale_models" / "RealESRGAN_x2plus.pth",
+        active_base_dir / "models" / "upscale_models" / "4x-UltraSharp.pth",
+        input_dir / DEFAULT_IMAGE,
     ]
     file_checks = [
         {
@@ -2322,6 +3594,12 @@ async def validate() -> dict[str, Any]:
         "TI2V 5B": build_ti2v_prompt(
             **{**sample_params, "steps": 20, "cfg": 5.0}
         ),
+        "Mac LTX I2V": build_ltx_i2v_prompt(
+            **{**sample_params, "width": 512, "height": 320, "length": 25, "steps": 12, "cfg": 3.0}
+        ),
+        "Mac LTX T2V": build_ltx_t2v_prompt(
+            **{k: v for k, v in {**sample_params, "width": 512, "height": 320, "length": 25, "steps": 12, "cfg": 3.0}.items() if k != "image_name"}
+        ),
         "RIFE 2x": build_rife_prompt(video_name="sample.mp4", fps=24, multiplier=2),
         "Upscale 2x": build_video_upscale_prompt(video_name="sample.mp4", fps=24),
     }
@@ -2343,6 +3621,7 @@ async def validate() -> dict[str, Any]:
     ok = all(item["ok"] for item in node_checks + file_checks + graph_checks + tool_checks)
     return {
         "ok": ok,
+        "paths": serializable_comfy_paths(comfy_paths),
         "nodes": node_checks,
         "files": file_checks,
         "graphs": graph_checks,
@@ -2385,6 +3664,8 @@ async def workflow_preview(
     mode = resolved["mode"]
     upscale_model = resolved["upscale_model"]
     rife_multiplier = resolved["rife_multiplier"]
+    if mode in {"ltx_i2v", "ltx_t2v"}:
+        length = normalize_ltx_frames(length)
 
     if mode == "":
         return {
@@ -2438,18 +3719,41 @@ async def workflow_preview(
     if graph is None:
         raise HTTPException(status_code=400, detail="未知模式，无法创建 ComfyUI 工作流")
 
+    object_info: dict[str, Any] | None = None
+    object_error = ""
+    try:
+        object_info = await comfy_get("/object_info")
+        graph = resolve_graph_model_option_names(graph, object_info)
+    except HTTPException as exc:
+        object_error = str(exc.detail)
     graph_errors = validate_graph(graph)
     availability = await comfy_node_availability(graph)
+    model_errors = graph_model_registry_errors(graph, object_info)
+    try:
+        system_stats = await comfy_get("/system_stats")
+    except HTTPException:
+        system_stats = None
+    risk_checks = workflow_risk_checks(
+        mode=mode,
+        hardware=build_hardware_summary(system_stats),
+        width=width,
+        height=height,
+        length=length,
+    )
     output_nodes = [
         node_id
         for node_id, item in graph.items()
         if item.get("class_type") in {"SaveVideo", "VHS_VideoCombine", "SaveImage"}
     ]
     errors = list(graph_errors)
+    errors.extend(model_errors)
+    errors.extend(item["message"] for item in risk_checks if item.get("level") == "blocked")
     if availability["missing"]:
         errors.append(f"ComfyUI 缺少节点：{', '.join(availability['missing'])}")
     if availability["error"]:
         errors.append(availability["error"])
+    if object_error and object_error not in errors:
+        errors.append(object_error)
     response: dict[str, Any] = {
         "ok": not errors,
         "mode": mode,
@@ -2460,6 +3764,7 @@ async def workflow_preview(
         "class_types": graph_class_types(graph),
         "output_nodes": output_nodes,
         "errors": errors,
+        "risk_checks": risk_checks,
         "comfy": availability,
         "parameters": {
             "width": width,
@@ -2519,15 +3824,18 @@ async def generate(
         upscale_model=upscale_model,
         rife_multiplier=rife_multiplier,
     )
+    comfy_paths = await active_comfy_paths()
     mode = resolved["mode"]
     selected_label = resolved["label"]
     upscale_model = resolved["upscale_model"]
     rife_multiplier = clamp_int(resolved["rife_multiplier"], 2, 4)
+    if mode in {"ltx_i2v", "ltx_t2v"}:
+        length = normalize_ltx_frames(length)
 
-    if mode in {"i2v_a14b", "ti2v_5b"}:
+    if mode in {"i2v_a14b", "ti2v_5b", "ltx_i2v"}:
         image_name = DEFAULT_IMAGE
         if image and image.filename:
-            image_name = await save_upload(image, IMAGE_EXTENSIONS)
+            image_name = await save_upload(image, IMAGE_EXTENSIONS, comfy_paths)
     else:
         image_name = ""
 
@@ -2572,15 +3880,43 @@ async def generate(
             cfg=cfg,
         )
         title = selected_label or "TI2V 5B 草稿"
+    elif mode == "ltx_i2v":
+        graph = build_ltx_i2v_prompt(
+            prompt=prompt_text,
+            negative=negative_text,
+            image_name=image_name,
+            width=width,
+            height=height,
+            length=length,
+            fps=fps,
+            seed=seed_value,
+            steps=steps,
+            cfg=cfg,
+        )
+        title = selected_label or "Mac LTX I2V"
+    elif mode == "ltx_t2v":
+        graph = build_ltx_t2v_prompt(
+            prompt=prompt_text,
+            negative=negative_text,
+            width=width,
+            height=height,
+            length=length,
+            fps=fps,
+            seed=seed_value,
+            steps=steps,
+            cfg=cfg,
+        )
+        title = selected_label or "Mac LTX T2V"
     elif mode == "rife_2x":
         if source_video_filename:
             video_name = copy_media_to_input(
                 source_video_filename,
                 source_video_subfolder,
                 source_video_type or "output",
+                comfy_paths,
             )
         elif video and video.filename:
-            video_name = await save_upload(video, VIDEO_EXTENSIONS)
+            video_name = await save_upload(video, VIDEO_EXTENSIONS, comfy_paths)
         else:
             raise HTTPException(status_code=400, detail="RIFE 模式需要上传视频，或先完成上一阶段视频生成")
         graph = build_rife_prompt(video_name=video_name, fps=fps, multiplier=rife_multiplier)
@@ -2591,14 +3927,15 @@ async def generate(
                 source_video_filename,
                 source_video_subfolder,
                 source_video_type or "output",
+                comfy_paths,
             )
         elif video and video.filename:
-            video_name = await save_upload(video, VIDEO_EXTENSIONS)
-            source_path = input_media_path(video_name)
+            video_name = await save_upload(video, VIDEO_EXTENSIONS, comfy_paths)
+            source_path = input_media_path(video_name, comfy_paths)
         else:
             raise HTTPException(status_code=400, detail="闪烁修复需要上传视频，或先完成上一阶段视频生成")
 
-        media = run_deflicker(source_path)
+        media = run_deflicker(source_path, comfy_paths)
         job_id = uuid.uuid4().hex
         JOBS[job_id] = {
             "id": job_id,
@@ -2626,9 +3963,10 @@ async def generate(
                 source_video_filename,
                 source_video_subfolder,
                 source_video_type or "output",
+                comfy_paths,
             )
         elif video and video.filename:
-            video_name = await save_upload(video, VIDEO_EXTENSIONS)
+            video_name = await save_upload(video, VIDEO_EXTENSIONS, comfy_paths)
         else:
             raise HTTPException(status_code=400, detail="清晰度增强需要上传视频，或先完成上一阶段视频生成")
         graph = build_video_upscale_prompt(video_name=video_name, fps=fps, model_name=upscale_model)
@@ -2640,7 +3978,31 @@ async def generate(
     else:
         raise HTTPException(status_code=400, detail="未知模式")
 
+    try:
+        object_info = await comfy_get("/object_info")
+    except HTTPException as exc:
+        raise HTTPException(status_code=503, detail=f"ComfyUI 未连接，无法提交 workflow：{exc.detail}") from exc
+    graph = resolve_graph_model_option_names(graph, object_info)
     graph_errors = validate_graph(graph)
+    graph_errors.extend(graph_model_registry_errors(graph, object_info))
+    missing_nodes = [name for name in graph_class_types(graph) if name not in object_info]
+    if missing_nodes:
+        graph_errors.append(f"ComfyUI 缺少节点：{', '.join(missing_nodes)}")
+    try:
+        system_stats = await comfy_get("/system_stats")
+    except HTTPException:
+        system_stats = None
+    graph_errors.extend(
+        item["message"]
+        for item in workflow_risk_checks(
+            mode=mode,
+            hardware=build_hardware_summary(system_stats),
+            width=width,
+            height=height,
+            length=length,
+        )
+        if item.get("level") == "blocked"
+    )
     if graph_errors:
         raise HTTPException(status_code=400, detail={"message": "工作流图无效", "errors": graph_errors})
 
@@ -2698,7 +4060,7 @@ async def get_job(job_id: str) -> dict[str, Any]:
 
 @app.get("/api/view")
 async def view(filename: str, subfolder: str = "", type: str = "output") -> FileResponse:
-    path = safe_media_path(filename, subfolder, type)
+    path = safe_media_path(filename, subfolder, type, await active_comfy_paths())
     media_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
     return FileResponse(path, media_type=media_type, filename=path.name)
 

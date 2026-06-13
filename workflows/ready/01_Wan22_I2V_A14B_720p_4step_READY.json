@@ -244,10 +244,10 @@
         81,
         null,
         null,
-        "Wan2.2\\wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors",
-        "Wan2.2\\wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors",
-        "Wan2.2\\wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors",
-        "Wan2.2\\wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors",
+        "Wan2.2/wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors",
+        "Wan2.2/wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors",
+        "Wan2.2/wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors",
+        "Wan2.2/wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors",
         "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
         "wan_2.1_vae.safetensors"
       ]
@@ -718,7 +718,7 @@
               }
             },
             "widgets_values": [
-              "Wan2.2\\wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors",
+              "Wan2.2/wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors",
               "default"
             ]
           },
@@ -785,7 +785,7 @@
               }
             },
             "widgets_values": [
-              "Wan2.2\\wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors",
+              "Wan2.2/wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors",
               "default"
             ]
           },
@@ -1033,7 +1033,7 @@
               }
             },
             "widgets_values": [
-              "Wan2.2\\wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors",
+              "Wan2.2/wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors",
               1.0000000000000002
             ]
           },
@@ -1105,7 +1105,7 @@
               }
             },
             "widgets_values": [
-              "Wan2.2\\wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors",
+              "Wan2.2/wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors",
               1.0000000000000002
             ]
           },

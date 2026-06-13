@@ -203,7 +203,7 @@
         "Node name for S&R": "UNETLoader"
       },
       "widgets_values": [
-        "Wan2.2\\wan2.2_ti2v_5B_fp16.safetensors",
+        "Wan2.2/wan2.2_ti2v_5B_fp16.safetensors",
         "default"
       ]
     },
