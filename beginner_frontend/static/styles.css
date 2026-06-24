@@ -333,6 +333,177 @@ h2 {
   min-width: 0;
 }
 
+.service-panel {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid #243133;
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(20, 31, 33, 0.98), rgba(18, 26, 29, 0.96)),
+    #121a1d;
+  box-shadow: var(--shadow-soft);
+  color: #edf7f5;
+}
+
+.service-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.service-panel-head > div {
+  display: grid;
+  gap: 4px;
+}
+
+.service-panel-head strong {
+  color: #ffffff;
+  font-size: 16px;
+}
+
+.service-panel-head small {
+  color: #b5c7c4;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.service-panel-head > span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid rgba(126, 228, 214, 0.32);
+  border-radius: 8px;
+  background: rgba(126, 228, 214, 0.12);
+  color: #9ff0e5;
+  font-size: 12px;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.service-mode-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+}
+
+.service-mode-card {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  min-width: 0;
+  min-height: 96px;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #e7f0ee;
+  cursor: pointer;
+}
+
+.service-mode-card.active {
+  border-color: rgba(126, 228, 214, 0.75);
+  background: rgba(126, 228, 214, 0.14);
+}
+
+.service-mode-card input {
+  margin: 3px 0 0;
+  accent-color: var(--accent);
+}
+
+.service-mode-card span {
+  display: grid;
+  gap: 4px;
+}
+
+.service-mode-card strong {
+  color: #ffffff;
+  font-size: 14px;
+}
+
+.service-mode-card small {
+  color: #b9c9c6;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.service-settings-grid,
+.service-url-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.service-setting {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.service-setting span,
+.service-url-grid small {
+  color: #b8cbc8;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.service-setting input {
+  width: 100%;
+  min-height: 42px;
+  padding: 0 11px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+}
+
+.service-setting input:disabled {
+  color: #93a4a1;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.service-setting small {
+  color: #9fb2af;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.service-url-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.service-url-grid div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  min-height: 70px;
+  padding: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.service-url-grid strong {
+  color: #ffffff;
+  font-size: 13px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.service-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.service-panel .workflow-status {
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
 .env-head {
   display: flex;
   align-items: center;
@@ -365,8 +536,74 @@ h2 {
 .env-actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
   min-width: 0;
+}
+
+.profile-select-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 42px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.profile-select-wrap span {
+  white-space: nowrap;
+}
+
+.profile-select-wrap select {
+  min-height: 32px;
+  max-width: min(260px, 58vw);
+  padding: 0 8px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  outline: none;
+}
+
+.download-source-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 8px;
+  align-items: center;
+}
+
+.download-source-controls button {
+  min-height: 42px;
+  white-space: normal;
+}
+
+.download-source-input {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  min-height: 42px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.download-source-input span {
+  white-space: nowrap;
+}
+
+.download-source-input input {
+  min-height: 32px;
+  padding: 0 8px;
+  border: 0;
+  background: transparent;
 }
 
 .env-grid {
@@ -453,7 +690,8 @@ h2 {
 .model-recommendations,
 .load-diagnostics,
 .missing-items,
-.small-routes {
+.small-routes,
+.prerequisite-list {
   display: grid;
   gap: 8px;
 }
@@ -491,6 +729,11 @@ h2 {
   overflow-wrap: anywhere;
 }
 
+.missing-row .next-action {
+  color: #3f555b;
+  font-weight: 760;
+}
+
 .model-row p {
   min-width: 0;
   color: #47565c;
@@ -526,6 +769,21 @@ h2 {
   border: 1px solid #f0d0a2;
   border-radius: 8px;
   background: #fff8ed;
+}
+
+.missing-row.good {
+  border-color: #b9dfc4;
+  background: #f2fbf4;
+}
+
+.missing-row.warn {
+  border-color: #f0d0a2;
+  background: #fff8ed;
+}
+
+.missing-row.blocked {
+  border-color: #efb7b7;
+  background: #fff3f3;
 }
 
 .path-stack {
@@ -688,6 +946,21 @@ select {
   border-color: #efb4ad;
   background: #fff3f1;
   color: #9b2f25;
+}
+
+.workflow-status strong {
+  display: block;
+  margin-bottom: 4px;
+  color: inherit;
+}
+
+.workflow-status ul {
+  margin: 5px 0 0;
+  padding-left: 17px;
+}
+
+.workflow-status li + li {
+  margin-top: 4px;
 }
 
 input[type="file"] {
@@ -1037,17 +1310,23 @@ select:focus {
   .workflow,
   .form-grid,
   .env-grid,
-  .resolution-card {
+  .download-source-controls,
+  .resolution-card,
+  .service-mode-grid,
+  .service-settings-grid,
+  .service-url-grid {
     grid-template-columns: 1fr;
   }
 
   .env-head,
-  .env-block-title {
+  .env-block-title,
+  .service-panel-head {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .env-actions {
+  .env-actions,
+  .service-actions {
     flex-direction: column;
   }
 

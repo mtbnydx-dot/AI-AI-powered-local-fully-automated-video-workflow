@@ -700,7 +700,7 @@
         "Node name for S&R": "SaveVideo"
       },
       "widgets_values": [
-        "wan22/TI2V_draft_%date:yyyy-MM-dd%",
+        "wan22/TI2V_draft",
         "mp4",
         "h264"
       ]

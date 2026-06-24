@@ -40,6 +40,6 @@
   "11": {"class_type": "CreateVideo", "inputs": {"images": ["10", 0], "fps": 24.0}},
   "12": {
     "class_type": "SaveVideo",
-    "inputs": {"video": ["11", 0], "filename_prefix": "wan22_frontend/Mac_LTX_T2V_%date:yyyy-MM-dd%", "format": "mp4", "codec": "h264"}
+    "inputs": {"video": ["11", 0], "filename_prefix": "wan22_frontend/Mac_LTX_T2V", "format": "mp4", "codec": "h264"}
   }
 }

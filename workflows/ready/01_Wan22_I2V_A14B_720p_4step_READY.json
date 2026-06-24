@@ -302,7 +302,7 @@
         "Node name for S&R": "SaveVideo"
       },
       "widgets_values": [
-        "wan22/I2V_A14B_%date:yyyy-MM-dd%",
+        "wan22/I2V_A14B",
         "mp4",
         "h264"
       ],

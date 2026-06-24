@@ -102,6 +102,78 @@
           <div class="form-grid">
             <div class="field wide hidden" data-section="environment">
               <div class="environment-board">
+                <div class="service-panel" id="servicePanel">
+                  <div class="service-panel-head">
+                    <div>
+                      <strong>运行入口模式</strong>
+                      <small>第一次运行先选这台机器怎么用：只当服务端、只当客户端，或本机同时控制和生成。</small>
+                    </div>
+                    <span id="serviceModeBadge">未配置</span>
+                  </div>
+
+                  <div class="workflow-status pending hidden" id="serviceFirstRun">
+                    第一次运行需要先保存一个模式。保存后本机配置会写入项目目录；切换到服务端或双模式后，请重启 start.bat 让局域网监听生效。
+                  </div>
+
+                  <div class="service-mode-grid" id="serviceModeOptions" aria-label="运行入口模式">
+                    <label class="service-mode-card">
+                      <input type="radio" name="serviceMode" value="both" />
+                      <span>
+                        <strong>本机一体</strong>
+                        <small>前端和生成后端在同一台机器，最适合首次开箱。</small>
+                      </span>
+                    </label>
+                    <label class="service-mode-card">
+                      <input type="radio" name="serviceMode" value="server" />
+                      <span>
+                        <strong>服务端</strong>
+                        <small>这台机器负责装环境、跑 ComfyUI，并允许局域网前端连接。</small>
+                      </span>
+                    </label>
+                    <label class="service-mode-card">
+                      <input type="radio" name="serviceMode" value="client" />
+                      <span>
+                        <strong>客户端</strong>
+                        <small>这台机器只打开面板，任务提交给另一台服务端机器。</small>
+                      </span>
+                    </label>
+                  </div>
+
+                  <div class="service-settings-grid">
+                    <label class="service-setting" for="serviceServerUrl">
+                      <span>服务端地址</span>
+                      <input id="serviceServerUrl" type="url" placeholder="http://192.168.1.20:7860" autocomplete="off" />
+                      <small>客户端模式必填；填写服务端页面里显示的局域网地址。</small>
+                    </label>
+                    <label class="service-setting" for="serviceAccessToken">
+                      <span>访问令牌</span>
+                      <input id="serviceAccessToken" type="text" placeholder="服务端自动生成，可留空" autocomplete="off" />
+                      <small>服务端/双模式会自动生成；局域网客户端写操作需要相同令牌。</small>
+                    </label>
+                  </div>
+
+                  <div class="service-url-grid">
+                    <div>
+                      <small>本机地址</small>
+                      <strong id="serviceLocalUrl">检测中</strong>
+                    </div>
+                    <div>
+                      <small>局域网地址</small>
+                      <strong id="serviceLanUrl">保存服务端模式后显示</strong>
+                    </div>
+                    <div>
+                      <small>当前 API</small>
+                      <strong id="serviceApiUrl">本机</strong>
+                    </div>
+                  </div>
+
+                  <div class="service-actions">
+                    <button class="primary" id="saveServiceConfigButton" type="button">保存运行模式</button>
+                    <button class="secondary" id="reloadServiceConfigButton" type="button">刷新连接信息</button>
+                  </div>
+                  <div class="workflow-status pending" id="serviceStatus">正在读取运行模式。</div>
+                </div>
+
                 <div class="env-head">
                   <div>
                     <strong>环境体检结果</strong>
@@ -109,6 +181,13 @@
                   </div>
                   <div class="env-actions">
                     <button class="secondary" id="detectEnvironmentButton" type="button">重新侦测</button>
+                    <button class="primary" id="runFullSetupButton" type="button">一键准备环境</button>
+                    <button class="secondary" id="runSelfTestButton" type="button">运行本机自检</button>
+                    <button class="secondary" id="runVideoSmokeButton" type="button">生成链路测试</button>
+                    <label class="profile-select-wrap" for="installProfileSelector">
+                      <span>安装档位</span>
+                      <select id="installProfileSelector"></select>
+                    </label>
                     <button class="primary" id="installMissingButton" type="button">一键安装/修复缺失项</button>
                   </div>
                 </div>
@@ -119,6 +198,38 @@
                     <strong>检测中</strong>
                     <span>请稍候</span>
                   </div>
+                </div>
+
+                <div class="env-block">
+                  <div class="env-block-title">
+                    <strong>开箱前置条件</strong>
+                    <small>Python、前端依赖、下载工具、磁盘和目录权限</small>
+                  </div>
+                  <div class="prerequisite-list" id="prerequisiteChecks"></div>
+                </div>
+
+                <div class="env-block">
+                  <div class="env-block-title">
+                    <strong>下载源与代理</strong>
+                    <small>模型源、pip 镜像源或本机网络代理</small>
+                  </div>
+                  <div class="download-source-controls">
+                    <label class="download-source-input" for="hfEndpointInput">
+                      <span>Hugging Face</span>
+                      <input id="hfEndpointInput" type="url" placeholder="https://huggingface.co" autocomplete="off" />
+                    </label>
+                    <label class="download-source-input" for="pipIndexInput">
+                      <span>pip 镜像</span>
+                      <input id="pipIndexInput" type="url" placeholder="https://pypi.org/simple" autocomplete="off" />
+                    </label>
+                    <label class="download-source-input" for="proxyUrlInput">
+                      <span>代理</span>
+                      <input id="proxyUrlInput" type="url" placeholder="http://127.0.0.1:7890" autocomplete="off" />
+                    </label>
+                    <button class="secondary" id="saveDownloadSettingsButton" type="button">保存网络设置</button>
+                    <button class="secondary" id="testDownloadSourcesButton" type="button">测试下载源</button>
+                  </div>
+                  <div class="workflow-status pending" id="downloadSourceStatus">留空使用官方源且不设置代理；填写后可直接点“测试下载源”，系统会先保存当前设置再测试连通性。</div>
                 </div>
 
                 <div class="env-block">
@@ -315,6 +426,8 @@
           <div class="next-row">
             <button class="primary hidden" id="continueButton" type="button">继续下一步</button>
             <button class="secondary hidden" id="repeatButton" type="button">重跑当前步</button>
+            <button class="secondary" id="copyDiagnosticsButton" type="button">复制诊断信息</button>
+            <button class="secondary" id="downloadDiagnosticsButton" type="button">下载诊断包</button>
           </div>
           <div class="log-box" id="logBox"></div>
         </section>
