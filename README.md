@@ -684,3 +684,7 @@ ComfyUI Desktop 管理 Python 环境的方式可能和源码版不同。如果�
 ### 双 48GB 是否等于一张 96GB
 
 默认不是。大多数单个 ComfyUI 视频任务主要看单卡显存。双卡更适合并行跑镜头，或做更复杂的多进程配置。
+
+## 贡献者
+
+- [xu0005HE@E.NTU.EDU.SG](mailto:xu0005HE@E.NTU.EDU.SG)
