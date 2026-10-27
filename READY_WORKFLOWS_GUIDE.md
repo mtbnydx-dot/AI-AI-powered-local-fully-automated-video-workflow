@@ -1,140 +1,65 @@
-# ComfyUI 手工参考工作流说明
+# 手工工作流与动态工作流
 
-## 工作流位置
+日常使用优先从前端选择模型，由平台构建并预检 API 图。本页面向需要直接操作 ComfyUI 的使用者。模板编号是历史文件名，不代表必须按顺序执行，也不代表全平台只支持 Wan。
 
-项目内文件位于：`workflows/ready/`。
+## 1. 两类文件
 
-可以直接拖入 ComfyUI 页面，或复制到 `<COMFYUI_USER_DIR>/default/workflows/` 后从工作流菜单打开。
+| 目录 | 格式与用途 |
+| --- | --- |
+| [workflows/ready/](workflows/ready/) | ComfyUI 编辑器 JSON，含界面节点/连线，可在兼容编辑器中打开 |
+| [workflows/mac/](workflows/mac/) | 带 `_api.json` 的执行图，供 API/工具调用 |
+| [workflows/comfyui_blueprints/](workflows/comfyui_blueprints/) | 原始参考蓝图，不承诺直接满足当前运行时 |
 
-如果 ComfyUI 页面没立刻显示，刷新浏览器页面即可。
+API JSON 与编辑器 JSON 不等价。不要假设每个 JSON 都能直接拖入编辑器显示，也不要将编辑器 JSON 原样 POST 到 `/prompt`。
 
-日常使用优先从前端模型控制台选择 MiniMax H3、LTX-Video、HunyuanVideo 或 Wan2.2；前端会按当前模型动态构建并预检 API workflow。本文件列出的是可拖入 ComfyUI 的手工模板，编号不代表全局推荐顺序。
+前端动态工作流由代码生成，H3 创作扩展、LTX 2.5、Qwen 编辑等不必有一张同名静态 ready 文件。原理见[模型工作流](MODEL_WORKFLOWS.md)。
 
-## 1. Wan2.2 I2V-A14B 手工模板
+## 2. ready 模板目录
 
-打开：
+| 文件 | 作用 | 手动检查 |
+| --- | --- | --- |
+| `01_Wan22_I2V_A14B_720p_4step_READY.json` | Wan A14B 图生视频，成对高低噪声与 4 步 LoRA | 首帧、I2V 主模型/LoRA 配对 |
+| `02_Wan22_T2V_A14B_720p_4step_READY.json` | Wan A14B 文生视频 | T2V 主模型/LoRA 配对 |
+| `03_Wan22_TI2V_5B_720p_DRAFT_READY.json` | Wan 5B 图片输入示例 | 模型、Wan2.2 VAE 与输入图 |
+| `04_RIFE_2x_Postprocess_READY.json` | RIFE 2x 插帧 | 原片、rife49 权重、输出 FPS |
+| `05_MiniMax_H3_FL2VA_T2V_INT8_READY.json` | H3 FL2VA 文字音视频 | 四类 H3 权重与节点 |
+| `06_MiniMax_H3_FL2VA_I2V_INT8_READY.json` | H3 FL2VA 首帧/首尾帧 | 首帧必需，尾帧按需，音频开关 |
 
-`01_Wan22_I2V_A14B_720p_4step_READY.json`
+模板中的示例图片/视频和权重不包含在 GitHub 发布包。文件名中 READY 表示模板已预设，不保证你的运行时已经就绪。
 
-用途：
+## 3. 手动运行方法
 
-用关键帧控制构图、人物、场景和品牌风格，生成最终 720P 镜头。
+1. 按需要安装当前模型与节点，确认 ComfyUI 已成功加载。
+2. 在 ComfyUI 中打开对应编辑器 JSON。
+3. 把模板中的示例输入替换成自己的素材。
+4. 从当前加载器下拉选择实际模型，避免跨系统复制硬编码路径。
+5. 核对画布、帧数、FPS、步数、LoRA 版本与输出目录。
+6. 已获 GPU 使用授权后，先用低分辨率短片段排队测试。
+7. 检查输出可完整播放，再提高参数。
 
-已配置：
+新版本节点可能增加必填参数或更改 widgets。手工模板不会自动获得平台的全部 schema 兼容修正；失败时优先使用前端动态图，或按当前 `/object_info` 修正模板。
 
-- 尺寸：`1280x704`
-- 帧数：`81`
-- FPS：`24`
-- high noise：`Wan2.2/wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors`
-- low noise：`Wan2.2/wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors`
-- VAE：`wan_2.1_vae.safetensors`
-- CLIP：`umt5_xxl_fp8_e4m3fn_scaled.safetensors`
-- Lightx2v 4-step LoRA 已接好
-- 示例关键帧：`wan22_sample_esports_keyframe.png`
+RIFE 模板示例是 24 → 48 FPS。原视频是 16 FPS 时，2x 应对应 32 FPS；只改输出帧率不等于正确插帧。
 
-你只需要改：
+## 4. Mac API 图
 
-- `Load Image`：换成自己的关键帧
-- `Positive Prompt`：写镜头动作和画面描述
-- 想竖屏就把宽高改成 `704x1280`
+| 文件 | 作用 |
+| --- | --- |
+| `mac_ltx_smoke_test_api.json` | 极短轻量链路示例 |
+| `mac_ltx_t2v_512x320_api.json` | LTX 文字短片 |
+| `mac_ltx_i2v_512x320_api.json` | LTX 图片短片 |
+| `mac_wan5b_ti2v_480p_api.json` | 高内存 Mac Wan5B 实验示例 |
 
-## 2. Wan2.2 T2V-A14B 手工模板
+Mac 图仍依赖 MPS、匹配 dtype、节点和实际模型名。检查文件可解析不代表当前 Mac 可以生成。优先从前端 Mac 推荐档构建图，避免绕过硬件预检。
 
-打开：
+## 5. 怎样核查
 
-`02_Wan22_T2V_A14B_720p_4step_READY.json`
+- 静态：JSON 可解析、节点引用有效、模型清单一致。
+- 运行时：ComfyUI 已加载节点，模型名在实际下拉中，必填输入完整。
+- 实机：获得资源使用授权后完成短片，并核对视频/声音。
 
-用途：
+`scripts/verify_wan22_setup.ps1` 是历史 Wan 基础检查入口，不能代替全平台 H3/LTX/Qwen 验收。通用 CPU 检查见[维护与验证](TECHNICAL_ARCHITECTURE.md#10-维护与验证)；「生成链路测试」会真实提交推理。
 
-没有参考图时做概念探索。它可以直接 Queue，但一致性不如 I2V。
+---
 
-已配置：
-
-- 尺寸：`1280x704`
-- 帧数：`81`
-- FPS：`24`
-- T2V high/low noise A14B fp8
-- T2V Lightx2v 4-step LoRA
-
-你只需要改：
-
-- 主提示词
-- 随机种子，固定 seed 可复现，randomize 可探索
-
-## 3. Wan2.2 TI2V-5B 手工模板
-
-打开：
-
-`03_Wan22_TI2V_5B_720p_DRAFT_READY.json`
-
-用途：
-
-快速试动作、镜头运动、prompt 方向。满意后可以沿用该模型，也可以回到前端切换任意高质量模型。
-
-已配置：
-
-- 模型：`Wan2.2/wan2.2_ti2v_5B_fp16.safetensors`
-- VAE：`wan2.2_vae.safetensors`
-- 尺寸：`1280x704`
-- 帧数：`81`
-- FPS：`24`
-- 默认接入同一张示例关键帧
-
-建议：
-
-- 草稿阶段先用 `20` steps。
-- 如果画面不稳，先别急着加步数，优先改 prompt 和关键帧。
-
-## 4. 后处理插帧：RIFE 2x
-
-打开：
-
-`04_RIFE_2x_Postprocess_READY.json`
-
-用途：
-
-把生成好的视频做 2x 插帧并输出 MP4。
-
-已配置：
-
-- RIFE：`rife49.pth`
-- 插帧倍数：`2`
-- 输出 FPS：`48`
-- 输出格式：`video/h264-mp4`
-- CRF：`19`
-
-你只需要改：
-
-- `Load Generated Clip`：选择要后处理的视频
-- 如果原片是 16fps，把输出 frame_rate 改成 `32`
-- 如果原片是 24fps，保持 `48`
-
-## 5. MiniMax H3 FL2VA：文字生原生音视频
-
-打开：`05_MiniMax_H3_FL2VA_T2V_INT8_READY.json`
-
-适合没有参考图时直接生成画面、对白、音效和环境声。模型固定 24fps；首次建议 864x480、73 帧、20 步。提示词里同时写清楚画面、镜头运动、说话人、对白内容和环境声。
-
-## 6. MiniMax H3 FL2VA：首帧/首尾帧生原生音视频
-
-打开：`06_MiniMax_H3_FL2VA_I2V_INT8_READY.json`
-
-首帧用于锁定人物与构图，尾帧可选，用于控制镜头终点。四个模型文件必须放在 ComfyUI 对应的 `models/diffusion_models`、`models/text_encoders` 和 `models/vae` 目录。模型总下载约 53.9GB，要求 ComfyUI 0.30.1 或更新版本。
-
-## 推荐拍片顺序
-
-1. 在前端模型控制台按需要选择能力：是否要关键帧、尾帧或原生音频。
-2. 用当前模型的低分辨率短镜头参数快速试动作。
-3. 沿用当前模型或切换同家族质量档，生成 3-6 秒正式镜头。
-4. 需要时做闪烁修复、RIFE 插帧和超分。
-5. 多个镜头进剪映/达芬奇拼接、调色、加音乐。
-
-## 核查
-
-运行：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\verify_wan22_setup.ps1
-```
-
-看到 `Local AI video workbench setup verified.` 就说明脚本已完成基础模型和节点检查。前端里的 `生成链路测试` 才会验证当前所选模型能否真实生成。
+[返回 README](README.md) · [使用教程](BEGINNER_FRONTEND_GUIDE.md) · [API 指南](AI_PLATFORM_USAGE_GUIDE.md)

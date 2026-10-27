@@ -1,37 +1,39 @@
-# Qwen-Image-2.1 更新与使用说明
+# Qwen-Image-2.1 专项说明
 
-核对日期：2026-10-16。平台版本：2026.10.16.1。
+本页说明仓库中已经接入的 Qwen 2.1 档位，**不表示读者电脑已经下载、加载或实测这些模型**。按 2026-10-28 的代码整理；来源版本、文件大小与哈希见 [qwen21_updates.py](beginner_frontend/qwen21_updates.py)。
 
-## 本轮部署
+首次操作见[图片教程](BEGINNER_FRONTEND_GUIDE.md#4-生成或编辑图片)，条件与潜变量链路见[模型原理](MODEL_WORKFLOWS.md#4-qwen-image-21)。
 
-所有新增文件均使用固定 Hugging Face revision，已逐文件核对 SHA256。新增约 20.92 GiB；编码器和 VAE 复用现有文件，不重复下载。
+## 1. 档位如何选择
 
-| 图片模型菜单中的档位 | 用途 | 采样配置 | 状态 |
-| --- | --- | --- | --- |
-| Qwen 2.1 Turbo 8 步 | 官方快速生成与多参考编辑 | 8 步 / CFG 1 / Euler / Simple | 权重与静态图已核验，未出图实测 |
-| 社区 UC Q8 / 2026-10 | 独立新版 Q8 扩展 | 25 步 / CFG 1 | 社区模式开启后使用新版 UC Q8 |
-| 社区 UC INT8 / 2026-10 | 使用原生 UNETLoader 的社区扩展 | 25 步 / CFG 1 | 不依赖 GGUF 加载器 |
-| 社区 UC LoRA / 实验 | 在官方基础权重上加载轻量社区适配器 | 25 步 / CFG 1；强度默认 0.8 | 作者未提供充分效果验证，保留实验标记 |
-| 保构图编辑 25 步 | 降低编辑时的画面偏移 | 25 步；Consistency 强度 1.0 | 仅在“已有图片微调”中开放 |
-| 照片修复 25 步 | 模糊、压缩损伤照片的修复试用 | 25 步；Restore 强度 0.5 | 仅图片微调；目标像素限制约 2 MP |
+| 图片菜单中的档位 | 本平台用途 | 配方与边界 |
+| --- | --- | --- |
+| 原生 Qwen 2.1 | 标准生成与参考编辑 | 保留基础路线，先做基准 |
+| Qwen 2.1 Turbo 8 步 | 快速生成与编辑 | 8 步 / CFG 1 / Euler / Simple，需独立 Turbo 权重 |
+| 社区 UC Q8 / 2026-10 | GGUF 社区扩展 | 配套 GGUF 加载器；不是原文件改名 |
+| 社区 UC INT8 / 2026-10 | 原生加载器社区扩展 | 使用 UNETLoader 的独立 INT8 权重 |
+| 社区 UC LoRA / 实验 | 基础模型上加载适配器 | 默认强度 0.8，保留实验标记 |
+| 保构图编辑 25 步 | 约束编辑时的构图变化 | 仅编辑；Consistency 强度 1.0 |
+| 照片修复 25 步 | 模糊/压缩图片修复试用 | 仅编辑；Restore 强度 0.5；约 2 MP 预算 |
 
-**没有启动或重启 ComfyUI，没有调用 GPU，没有提交生成任务，也没有卸载其他模型。** 当前安装的 ComfyUI 0.36.0 未升级。所有效果、速度和显存占用都需要后续真实生成验收，不把文件完整当成效果已验证。
+普通 25 步模型不能仅改 steps 就当作 Turbo。社区模式的底模替换与额外 LoRA 是不同配置，避免在融合模型上重复叠加同一种修改。
 
-## 在前端使用
+Uncensored/UC 是社区标注，不构成效果、质量或任意内容可生成的保证。必须使用明确成年、自愿且合法授权的素材，不用于未成年人、非自愿内容或真人私密仿冒。
 
-1. 等显卡可用于生图后，再通过原有 `start.bat` / `START_WORKFLOW.bat` 入口启动平台。需要保留显卡给文本模型时，不要启动生成服务。
-2. 打开“图片生成”，点击“重新检查”。选择表格中的档位。原来的 Qwen 2.1 原生 2K 档及旧 Q8 开关仍保留。
-3. 官方快速生成选择“Qwen 2.1 Turbo 8 步”。步数、CFG、采样器与调度器按档位固定，不会把普通 25 步 Q8 错当作 Turbo 使用。
-4. 社区档默认仍为官方标准模式；明确确认主体为成年人、内容合规且参考素材已获授权后，再打开现有社区/成人扩展开关。关闭开关恢复官方基础图，不修改模型文件。
-5. UC LoRA 可以通过现有强度滑块调整，0 表示完全旁路。0.5–1.0 是平台试用范围，不是作者经过验证的最佳值。不要在已融合的 UC 模型上再次叠加同一 UC LoRA。
-6. 保构图与修复档先切换“已有图片微调”，上传目标图后再选择。当前沿用平台按目标像素预算缩放参考图的原生编辑路径，不承诺原尺寸逐像素对齐；附加参考图顺序仍是 `<image1>` 为目标图，后续为补充参考。
-7. 生成完成后，在图片历史查看和导出结果。首次只做一张普通合规测试图，确认实际加载、输出尺寸及错误日志，再扩大批量。
+## 2. 前端操作
 
-ComfyUI 未连接时，社区开关和生成按钮应保持未就绪。文件存在但节点未注册时，不要反复下载；连接 ComfyUI 并刷新检查。此次部署只写入磁盘，未做运行时节点注册验收。
+1. 打开「图片创作」，重新检查环境与可用档位。
+2. 文生图选支持生成的 profile；已有图修改先切换「已有图片微调」。
+3. 编辑时上传目标图，再加入附加参考，总计最多 10 张；目标图为第一个位置。
+4. 核对分辨率和锁定的采样参数，首次只生成一张。
+5. 若选择社区模式，先完成界面授权确认；关闭开关恢复该档的基础路线，不改写共享模型文件。
+6. 等任务结束后打开原图看真实尺寸、细节和编辑结果，再扩大批量或转成视频。
 
-## 新文件位置
+保构图可能限制姿态、转头等大幅修改；照片修复可能重新生成小脸和细节，不能当作法证恢复。参考编辑按像素预算处理，不保证逐像素原位保留。
 
-以下路径相对于 ComfyUI 的 base directory，不是前端源码目录：
+## 3. 文件位置与复用
+
+以下相对于实际 ComfyUI base 或已注册的模型根目录，不是固定系统盘位置：
 
 ```text
 models/diffusion_models/qwen_image_2.1_turbo_int8_convrot.safetensors
@@ -42,40 +44,58 @@ models/loras/Qwen-Image-2.1/qwen-image-2.1-consistency.safetensors
 models/loras/Qwen-Image-2.1/qwen-image-2.1-restore.safetensors
 ```
 
-原来的 `Qwen-Image-2.1-Uncensored/qwen-image-2.1-Q8_0.gguf` 没有覆盖或删除。基础 INT8、旧 Q8、编码器、VAE 的 SHA256 也已重新核对。
+新版文件独立存放，不覆盖原有 Q8。基础编码器和 VAE 可按清单复用；下载量取决于已安装内容，不把历史某台机器的剩余下载量当作所有人的需求。
 
-固定来源、大小和哈希集中在 `beginner_frontend/qwen21_updates.py`。前端下载管理复用现有安装器；以下维护命令仅下载或核验，不启动服务、不导入 torch：
+## 4. 维护与核验
+
+通用安装器与专项核验脚本不是同一个校验路径。专项 [prepare_qwen21_updates.py](scripts/prepare_qwen21_updates.py) 会检查清单中各新增文件的大小与 SHA256，不导入 torch、不启动服务。读取大文件校验仍会消耗磁盘 I/O 和时间。
+
+使用 Python 3.11 或 3.12（脚本使用 `hashlib.file_digest`）。下载模式还需要该 Python 环境安装了 `huggingface_hub`。在项目目录替换下面的路径占位符后运行：
 
 ```powershell
-# 使用已安装 huggingface_hub 的 ComfyUI Python；替换两个路径占位符。
-& '<ComfyUI Python路径>' -B scripts/prepare_qwen21_updates.py --base-dir '<ComfyUI base目录>'
-# 只检查现有文件，不下载。
-& '<ComfyUI Python路径>' -B scripts/prepare_qwen21_updates.py --base-dir '<ComfyUI base目录>' --verify-only
+# 只核对已有文件；不下载。
+& '<Python路径>' -B scripts/prepare_qwen21_updates.py --base-dir '<ComfyUI数据目录>' --verify-only
+# 明确需要下载缺失项时才执行。
+& '<Python路径>' -B scripts/prepare_qwen21_updates.py --base-dir '<ComfyUI数据目录>'
 ```
 
-## 找到但未自动启用的更新
+校验失败会保留文件并报错。不要把失败文件直接改名成另一档模型，也不要根据文件大小就宣称 hash 已通过。
 
-- **LightX2V Lightning 4 步**：真正的 2.1 专用蒸馏 LoRA，但作者要求动态指数时间偏移、指定 sigma 序列且无 terminal stretching，示例关闭 KV cache。不是把现有步数改为 4 就等价；本轮没有下载或冒充已完成适配。[作者说明](https://huggingface.co/lightx2v/Qwen-Image-2.1-Lightning)
-- **ComfyUI 0.38 系列缓存/编译、Tiny VAE、Union ControlNet 更新**：涉及核心程序与依赖兼容，应单独升级并回归 H3/LTX。此次保持核心不动。[官方发行说明](https://github.com/Comfy-Org/ComfyUI/releases/tag/v0.38.0)
-- **AtomicChat Turbo-Uncensored-GGUF**：仓库元数据的底模是 Qwen3-VL-8B，包含 mmproj，属于文本编码器路线，不能作为本平台的扩散模型替换项。[仓库元数据与说明](https://huggingface.co/AtomicChat/Qwen-Image-2.1-Turbo-Uncensored-GGUF)
-- **MLX、NVFP4、W4A8 及不同 Prompt Enhancer**：量化方式、推理后端和节点需求不同；没有因文件名类似就放入现有加载器，也没有替换原编码器。
-- **旧 Qwen-Image / 2512 / Edit-2511 LoRA**：不当作 2.1 专用适配器加载。未明确底模和键结构的转载、提示词仓库没有安装。
+## 5. 不属于自动适配范围的项目
 
-## 来源与限制
+- 其他 4 步 LoRA：需要自己的 sigma/shift/缓存配方，不能只改步数。
+- 旧 Qwen-Image、Edit-2511 等 LoRA：不能假定是 2.1 专用。
+- 名称含 Qwen 但实际是编码器/mmproj 的仓库：不能装作扩散主模型。
+- MLX、NVFP4、W4A8、不同 Prompt Enhancer：后端与加载器不同，不因文件名相似就直接替换。
+- 新版 ComfyUI 编译、缓存、ControlNet 等功能：需单独适配和回归，不由本页文档自动启用。
 
-- 官方于 10 月 9 日发布 Turbo，支持 8 步生成和编辑；本轮使用 Comfy-Org 的独立 INT8 权重，不是云 API。[Qwen 官方发布](https://github.com/QwenLM/Qwen-Image-2.1) · [Comfy 权重与采样配置](https://huggingface.co/Comfy-Org/Qwen-Image-2.1)
-- 原 abenzerps GGUF 仓库现指向 Uncensored-Quantized，新增 UC 命名的量化权重及 LoRA。Uncensored 是作者标注，不能据此推断所有内容都可生成或画质更好。[作者仓库](https://huggingface.co/abenzerps/Qwen-Image-2.1-Uncensored-Quantized)
-- Consistency 作者明确提醒可能压制姿态、转头等移动编辑；遇到此类需求应切回标准档。[Consistency](https://huggingface.co/ausboss/Qwen-Image-2.1-Consistency-LoRA)
-- Restore 作者建议模糊图片使用 0.5；它可能重绘小脸和细节，不是法证恢复或身份完全保真。本轮没有复制作者的自定义节点整套工作流。[Restore](https://huggingface.co/ausboss/Qwen-Image-2.1-Restore-LoRA)
-- 基础模型及衍生文件须遵守对应许可；本平台没有因为社区仓库标签就将其统一视为 Apache 2.0。[Qwen 许可](https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE)
+## 6. 问题定位
 
-## 验证范围
+| 现象 | 检查 |
+| --- | --- |
+| TextEncodeQwenImage21 缺少 resolution | 当前动态图显式提供此输入；核对运行后端是否更新、是否在使用旧模板 |
+| GGUF 加载失败 | 对照实际 GGUF 节点、依赖和模型下拉列表 |
+| 下载完成仍缺节点 | 看 ComfyUI 导入日志及其 Python 环境；节点目录存在不等于已加载 |
+| 缓存/条件形状报错 | 确认底模、编码器、VAE、编辑节点来自匹配路线 |
+| 批量部分成功 | 保留已有图片，按任务内各 prompt 状态排查，不重跑全部 |
+| 编辑结果变化过大 | 回到标准档与少量参考做对照；不要同时叠多个 LoRA |
 
-- 6 个新文件及 4 个既有基础文件 SHA256 通过。
-- 新档位的构图、加载器选择、参考图顺序、固定采样、LoRA 强度、离线/缺文件/缺节点门控通过 CPU 回归。
-- 新旧 Q8 以及官方标准档互不覆盖；切换社区模式不修改共享配置。
-- 前端在 1440px、390px 视口通过模型切换、参数锁定、微调档位和离线禁用测试。浏览器使用模拟 API、禁用 GPU，没有连接推理后端。
-- 全量 `scripts/self_check.py --json` 通过，包括 144 项模型资产清单、17 张工作流图、H3/LTX 等 17 项回归、原 Qwen 9 项检查及新增 Qwen 检查。修正了临时目录下载测试误扫描真实模型盘的隔离问题。
-- 未验证实际图像质量、速度、显存、GPU 执行与 Mac 推理效果。
+CPU 回归只能验证图与门控逻辑；实际加载、画质、耗时、显存和 MPS 兼容性需在对应机器上实测。
+
+## 7. 来源入口
+
+以下是清单与适配的上游来源入口，不代表本次文档整理重新评测了上游：
+
+- [Qwen-Image-2.1](https://huggingface.co/Qwen/Qwen-Image-2.1)
+- [Comfy-Org Qwen 2.1 权重](https://huggingface.co/Comfy-Org/Qwen-Image-2.1)
+- [社区量化与适配器](https://huggingface.co/abenzerps/Qwen-Image-2.1-Uncensored-Quantized)
+- [Consistency LoRA](https://huggingface.co/ausboss/Qwen-Image-2.1-Consistency-LoRA)
+- [Restore LoRA](https://huggingface.co/ausboss/Qwen-Image-2.1-Restore-LoRA)
+
+使用前分别确认模型与衍生文件许可。平台代码许可证不代替模型授权。
+
+---
+
+[返回 README](README.md) · [模型原理](MODEL_WORKFLOWS.md) · [使用教程](BEGINNER_FRONTEND_GUIDE.md)
 
 created by zlk 2026
