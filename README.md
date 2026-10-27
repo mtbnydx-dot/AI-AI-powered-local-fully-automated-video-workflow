@@ -17,6 +17,7 @@
 | 让其他 AI 或脚本操作平台 | [自动化与 API 使用指南](AI_PLATFORM_USAGE_GUIDE.md) |
 | 在 ComfyUI 内手动打开模板 | [手工工作流说明](READY_WORKFLOWS_GUIDE.md) |
 | 了解 Qwen 2.1 的独立更新档位 | [Qwen 专项说明](QWEN21_UPDATE_GUIDE.md) |
+| 用一台或多台 8×B200 离线批量生产 AI 短剧 | [短剧工厂控制系统](factory/README.md)（[架构](factory/ARCHITECTURE.md)） |
 
 文档按 2026-10-28 的仓库实现整理。运行版本请查 `/api/health`，不要用文档日期判断服务是否已经重启。
 
@@ -102,7 +103,7 @@ ComfyUI 本地推理          ffmpeg 本地后期         fal 云端 API（可�
 
 代码与测试入口见[维护和验证](TECHNICAL_ARCHITECTURE.md#10-维护与验证)。现有 CPU 自检和模拟 API 的浏览器回归，只证明对应代码与交互契约，不证明当前机器上的模型能实际生成。
 
-主要目录：`beginner_frontend/` 为前后端代码，`scripts/` 为安装与测试脚本，`workflows/` 为手工参考模板。发布目录的历史名称 `github_upload/wan22-local-video-workflow` 只是兼容路径，不表示平台只支持 Wan。
+主要目录：`beginner_frontend/` 为前后端代码，`scripts/` 为安装与测试脚本，`workflows/` 为手工参考模板，`factory/` 为 B200 集群短剧工厂控制系统（独立的 Python 项目，有自己的依赖和测试）。发布目录的历史名称 `github_upload/wan22-local-video-workflow` 只是兼容路径，不表示平台只支持 Wan。
 
 ## 许可证
 

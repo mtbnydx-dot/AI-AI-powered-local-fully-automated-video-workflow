@@ -1,0 +1,104 @@
+# 节点 1：7 张 B200 生成 + GPU7 MIG 切分为自治导演/审核中心（对话中的最终推荐方案）。
+# 镜像、启动命令与 vram_gb 都是待 P0 基准验证的起点；验证通过后把对应模型的 verified 改为 true。
+node_id: b200-01
+control_url: http://10.10.0.10:8700
+token: env:DF_WORKER_TOKEN
+store: {kind: fs, root: /mnt/factory}
+work_dir: /var/lib/drama-factory/work
+gpu_model: B200
+gpu_count: 8
+gpu_memory_gb: 180
+mig:
+  7: [3g.90gb, 2g.45gb, 1g.23gb, 1g.23gb]   # all-balanced；第二个 1g.23gb 预留给 P2 身份比对服务
+mig_uuids: {}          # `nvidia-smi -L` 后填写，例如 "7/3g.90gb#0": MIG-xxxxxxxx-...
+model_cache: /models
+disk_paths: [/mnt/factory, /var/lib/drama-factory]
+compose_dir: /etc/drama-factory/compose
+switch_command: docker compose -p df-engines -f {compose_dir}/{profile}.yml up -d --remove-orphans
+
+models:
+  h3_ref2va_native:
+    pools: [gen.native_ref]
+    image: registry.local/sglang-h3:pinned
+    command: >-
+      sglang serve --model-path /models/MiniMaxAI/MiniMax-H3 --model-variant ref2va
+      --num-gpus {num_gpus} --ulysses-degree {num_gpus} --encoder-parallel auto
+      --use-fsdp-inference true --performance-mode speed --port {port}
+    gpus: 4
+    vram_gb: 480
+    backend: {kind: http-video, options: {model: MiniMax-H3-Ref2VA}}
+  fasth3_omni:
+    pools: [gen.fast_ref]
+    image: registry.local/fastvideo-h3:pinned
+    command: fastvideo serve --model-path /models/FastH3/Omni-NVFP4-QAD --num-gpus 1 --port {port}
+    gpus: 1
+    vram_gb: 150
+    backend: {kind: http-video, options: {model: FastH3-Omni-NVFP4-QAD}}
+  vdn_h3:
+    pools: [gen.vdn]
+    image: registry.local/sglang-h3:pinned
+    command: >-
+      sglang serve --model-path /models/OpenVDN/vdn-minimax-h3 --num-gpus 1 --quantization fp8
+      --attention-backend hybrid_window_attn_h3 --performance-mode speed
+      --warmup-num-frames 345 --warmup-resolutions 1344x768 --port {port}
+    gpus: 1
+    vram_gb: 130
+    backend: {kind: http-video, options: {model: vdn-minimax-h3}}
+  qwen38_27b:
+    pools: [review.l3, director]
+    image: registry.local/vllm:pinned
+    command: vllm serve /models/Qwen/Qwen3.8-27B --served-model-name Qwen3.8-27B --port {port} --max-model-len 65536
+    gpus: 0
+    vram_gb: 80
+    backend:
+      kind: openai-chat
+      options: {model: Qwen3.8-27B, fps: 1.5, max_frames: 32, height: 448}
+  qwen3_vl_8b:
+    pools: [review.l1]
+    image: registry.local/vllm:pinned
+    command: vllm serve /models/Qwen/Qwen3-VL-8B-Instruct --served-model-name Qwen3-VL-8B-Instruct --port {port} --max-model-len 32768
+    gpus: 0
+    vram_gb: 30
+    backend:
+      kind: openai-chat
+      options: {model: Qwen3-VL-8B-Instruct, fps: 1.0, max_frames: 20, height: 448}
+  qwen3_asr:
+    pools: [review.asr]
+    image: registry.local/vllm:pinned
+    command: vllm serve /models/Qwen/Qwen3-ASR-1.7B --served-model-name Qwen3-ASR-1.7B --port {port}
+    gpus: 0
+    vram_gb: 12
+    backend: {kind: openai-asr, options: {model: Qwen3-ASR-1.7B}}
+
+profiles:
+  autonomous:            # 默认：4 原生 + 2 FastH3 + 1 VDN + MIG 审核
+    - {model: h3_ref2va_native, devices: [0, 1, 2, 3], port: 30010}
+    - {model: fasth3_omni, devices: [4], port: 30014}
+    - {model: fasth3_omni, devices: [5], port: 30015}
+    - {model: vdn_h3, devices: [6], port: 30016}
+    - {model: qwen38_27b, devices: [7/3g.90gb], port: 30020}
+    - {model: qwen3_vl_8b, devices: [7/2g.45gb], port: 30021}
+    - {model: qwen3_asr, devices: ["7/1g.23gb#0"], port: 30022}
+  ref_heavy:             # 原生队列空、角色镜头积压时：6 个 FastH3
+    - {model: fasth3_omni, devices: [0], port: 30010}
+    - {model: fasth3_omni, devices: [1], port: 30011}
+    - {model: fasth3_omni, devices: [2], port: 30012}
+    - {model: fasth3_omni, devices: [3], port: 30013}
+    - {model: fasth3_omni, devices: [4], port: 30014}
+    - {model: fasth3_omni, devices: [5], port: 30015}
+    - {model: vdn_h3, devices: [6], port: 30016}
+    - {model: qwen38_27b, devices: [7/3g.90gb], port: 30020}
+    - {model: qwen3_vl_8b, devices: [7/2g.45gb], port: 30021}
+    - {model: qwen3_asr, devices: ["7/1g.23gb#0"], port: 30022}
+  vdn_heavy:             # 过场/环境镜头积压时：5 个 VDN
+    - {model: vdn_h3, devices: [0], port: 30010}
+    - {model: vdn_h3, devices: [1], port: 30011}
+    - {model: vdn_h3, devices: [2], port: 30012}
+    - {model: vdn_h3, devices: [3], port: 30013}
+    - {model: fasth3_omni, devices: [4], port: 30014}
+    - {model: fasth3_omni, devices: [5], port: 30015}
+    - {model: vdn_h3, devices: [6], port: 30016}
+    - {model: qwen38_27b, devices: [7/3g.90gb], port: 30020}
+    - {model: qwen3_vl_8b, devices: [7/2g.45gb], port: 30021}
+    - {model: qwen3_asr, devices: ["7/1g.23gb#0"], port: 30022}
+profile: autonomous

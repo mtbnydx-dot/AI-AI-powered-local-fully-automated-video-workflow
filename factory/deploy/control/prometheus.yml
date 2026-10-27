@@ -1,0 +1,10 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: drama-factory          # 队列、镜头状态、GPU 秒数、暂停状态
+    static_configs:
+      - targets: ["control:8700"]
+  - job_name: dcgm                   # 每台 B200 节点的 DCGM exporter
+    static_configs:
+      - targets: ["10.10.0.21:9400", "10.10.0.22:9400"]

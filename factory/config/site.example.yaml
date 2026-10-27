@@ -1,0 +1,45 @@
+# 控制服务（CPU 管理服务器）站点配置。相对路径相对于本文件；"env:NAME" 从环境变量读取。
+site_id: dc1
+database_url: env:DF_DATABASE_URL          # 例：postgresql+psycopg://factory:密码@127.0.0.1:5432/factory
+store:
+  kind: fs                                 # 所有节点挂载同一共享目录（NVMe-oF / NFS / CephFS）
+  root: /mnt/factory
+  # kind: s3 时改用 MinIO：bucket / endpoint_url / access_key: env:... / secret_key: env:...
+trusted_keys_dir: /etc/drama-factory/trusted_keys   # 云端工作室公钥 studio.pub 放这里
+signing_key: /etc/drama-factory/keys/site.key       # 站点私钥，用于给回传结果包签名
+staging_dir: /var/lib/drama-factory/staging
+export_dir: /mnt/factory/exports
+import_roots: [/mnt/inbox]                 # 只允许从这些目录导入（移动介质 / 受控交换网关落地点）
+worker_token: env:DF_WORKER_TOKEN
+operator_token: env:DF_OPERATOR_TOKEN
+
+# 本站点实际部署了哪些审核级别。L2.identity 需要有商业授权的人脸特征模型（P2），部署前不要列入；
+# 缺 L3 时，原本需要深审的镜头会进入人工队列。
+review_levels: [L1, L2.asr, L3]
+
+# 生成池能力（不是包里能声明的东西）。max_frames 以 P0 实测为准。
+routes:
+  vdn: {modes: [t2va, fl2va], max_frames: 345}
+  fast_ref: {modes: [ref2va], max_frames: 345}
+  native_ref: {modes: [ref2va], max_frames: 362}
+
+license:
+  restricted_regions: [US, EU, UK, KR]     # H3 社区许可排除的地区
+  authorized_regions: []                   # 取得 MiniMax 书面授权后再登记
+
+watchdog:
+  gpu_temp_c: 87
+  ecc_uncorrected: 1
+  min_disk_free_gb: 500
+  review_backlog_high: 200
+  review_backlog_low: 50
+  failure_streak: 6
+  heartbeat_timeout_s: 120
+
+scheduler:
+  lease_s: 300                             # 节点每 60s 续租；租约过期的任务自动重排
+  tick_s: 10
+  auto_switch_profiles: false              # 积累一周运行数据后再打开
+  switch_sustain_s: 1800
+  switch_min_dwell_s: 7200
+  switch_gain: 0.3

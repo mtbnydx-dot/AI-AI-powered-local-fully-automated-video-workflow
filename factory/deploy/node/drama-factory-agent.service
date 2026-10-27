@@ -1,0 +1,17 @@
+# /etc/systemd/system/drama-factory-agent.service
+# 节点代理跑在宿主机上：需要 nvidia-smi 读遥测，并执行 node.yaml 里的 switch_command（docker compose）。
+[Unit]
+Description=Drama Factory node agent
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+User=dfactory
+Group=docker
+EnvironmentFile=/etc/drama-factory/agent.env
+ExecStart=/opt/drama-factory/.venv/bin/dfctl agent --node /etc/drama-factory/node.yaml
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

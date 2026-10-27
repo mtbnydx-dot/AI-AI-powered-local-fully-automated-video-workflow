@@ -1,0 +1,11 @@
+# 每台 B200 节点的 GPU 指标导出（Prometheus 抓取 :9400）。推理引擎由 `dfctl node render` 生成的 df-engines 项目管理。
+name: df-node
+services:
+  dcgm-exporter:
+    image: registry.local/dcgm-exporter:pinned
+    runtime: nvidia
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+    cap_add: [SYS_ADMIN]
+    network_mode: host
+    restart: unless-stopped

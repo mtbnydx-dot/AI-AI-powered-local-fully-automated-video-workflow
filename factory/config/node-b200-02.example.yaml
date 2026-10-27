@@ -1,0 +1,63 @@
+# 节点 2 及以后：纯生成节点（不切 MIG），审核由节点 1 的 GPU7 或审核工作站承担。
+# 新节点只需要：复制本文件、改 node_id、在控制服务上看到它的心跳即可加入，不需要改控制服务配置。
+node_id: b200-02
+control_url: http://10.10.0.10:8700
+token: env:DF_WORKER_TOKEN
+store: {kind: fs, root: /mnt/factory}
+work_dir: /var/lib/drama-factory/work
+gpu_count: 8
+gpu_memory_gb: 180
+model_cache: /models
+disk_paths: [/mnt/factory, /var/lib/drama-factory]
+compose_dir: /etc/drama-factory/compose
+switch_command: docker compose -p df-engines -f {compose_dir}/{profile}.yml up -d --remove-orphans
+
+models:
+  h3_ref2va_native:
+    pools: [gen.native_ref]
+    image: registry.local/sglang-h3:pinned
+    command: >-
+      sglang serve --model-path /models/MiniMaxAI/MiniMax-H3 --model-variant ref2va
+      --num-gpus {num_gpus} --ulysses-degree {num_gpus} --encoder-parallel auto
+      --use-fsdp-inference true --performance-mode speed --port {port}
+    gpus: 4
+    vram_gb: 480
+    backend: {kind: http-video, options: {model: MiniMax-H3-Ref2VA}}
+  fasth3_omni:
+    pools: [gen.fast_ref]
+    image: registry.local/fastvideo-h3:pinned
+    command: fastvideo serve --model-path /models/FastH3/Omni-NVFP4-QAD --num-gpus 1 --port {port}
+    gpus: 1
+    vram_gb: 150
+    backend: {kind: http-video, options: {model: FastH3-Omni-NVFP4-QAD}}
+  vdn_h3:
+    pools: [gen.vdn]
+    image: registry.local/sglang-h3:pinned
+    command: >-
+      sglang serve --model-path /models/OpenVDN/vdn-minimax-h3 --num-gpus 1 --quantization fp8
+      --attention-backend hybrid_window_attn_h3 --performance-mode speed
+      --warmup-num-frames 345 --warmup-resolutions 1344x768 --port {port}
+    gpus: 1
+    vram_gb: 130
+    backend: {kind: http-video, options: {model: vdn-minimax-h3}}
+
+profiles:
+  generation:            # 4 原生 + 2 FastH3 + 2 VDN（方案 A）
+    - {model: h3_ref2va_native, devices: [0, 1, 2, 3], port: 30010}
+    - {model: fasth3_omni, devices: [4], port: 30014}
+    - {model: fasth3_omni, devices: [5], port: 30015}
+    - {model: vdn_h3, devices: [6], port: 30016}
+    - {model: vdn_h3, devices: [7], port: 30017}
+  batch:                 # 4 VDN + 4 FastH3（方案 C，最大批量产能）
+    - {model: vdn_h3, devices: [0], port: 30010}
+    - {model: vdn_h3, devices: [1], port: 30011}
+    - {model: vdn_h3, devices: [2], port: 30012}
+    - {model: vdn_h3, devices: [3], port: 30013}
+    - {model: fasth3_omni, devices: [4], port: 30014}
+    - {model: fasth3_omni, devices: [5], port: 30015}
+    - {model: fasth3_omni, devices: [6], port: 30016}
+    - {model: fasth3_omni, devices: [7], port: 30017}
+  native_x2:             # 关键镜头 / 疑难返工集中处理：两组 4 卡原生 Ref2VA
+    - {model: h3_ref2va_native, devices: [0, 1, 2, 3], port: 30010}
+    - {model: h3_ref2va_native, devices: [4, 5, 6, 7], port: 30014}
+profile: generation

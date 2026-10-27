@@ -1,0 +1,8 @@
+*.egg-info/
+build/
+dist/
+demo-run/
+*.db
+*.db-wal
+*.db-shm
+*.key

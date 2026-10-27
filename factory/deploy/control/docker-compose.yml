@@ -1,0 +1,49 @@
+# 控制服务器（CPU 管理机）：PostgreSQL + 控制服务 + Prometheus。
+# 离线机房：所有镜像先推到本地仓库 registry.local，版本在上线前固定。
+name: df-control
+services:
+  postgres:
+    image: registry.local/postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: factory
+      POSTGRES_USER: factory
+      POSTGRES_PASSWORD: ${DF_DB_PASSWORD:?set DF_DB_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U factory"]
+      interval: 10s
+      retries: 10
+
+  control:
+    image: registry.local/drama-factory:0.1.0
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["server", "--site", "/etc/drama-factory/site.yaml", "--port", "8700"]
+    environment:
+      DF_DATABASE_URL: postgresql+psycopg://factory:${DF_DB_PASSWORD}@postgres:5432/factory
+      DF_WORKER_TOKEN: ${DF_WORKER_TOKEN:?set DF_WORKER_TOKEN}
+      DF_OPERATOR_TOKEN: ${DF_OPERATOR_TOKEN:?set DF_OPERATOR_TOKEN}
+    ports:
+      - "8700:8700"   # 只在机房内网暴露
+    volumes:
+      - /etc/drama-factory:/etc/drama-factory:ro
+      - /mnt/factory:/mnt/factory
+      - /mnt/inbox:/mnt/inbox:ro
+      - /var/lib/drama-factory:/var/lib/drama-factory
+
+  prometheus:
+    image: registry.local/prometheus:pinned
+    restart: unless-stopped
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - promdata:/prometheus
+    ports:
+      - "9090:9090"
+
+volumes:
+  pgdata: {}
+  promdata: {}
