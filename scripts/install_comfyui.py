@@ -19,7 +19,7 @@ COMFY_ZIP_CANDIDATES = [
     "https://github.com/Comfy-Org/ComfyUI/archive/refs/heads/master.zip",
     "https://github.com/Comfy-Org/ComfyUI/archive/refs/heads/main.zip",
 ]
-USER_AGENT = "wan22-local-video-workflow/1.0"
+USER_AGENT = "local-ai-video-workbench/1.0"
 GB = 1024**3
 BACKEND_MIN_FREE_GB = {
     "cuda": 20.0,
@@ -27,6 +27,18 @@ BACKEND_MIN_FREE_GB = {
     "cpu": 8.0,
     "skip": 3.0,
 }
+
+
+def hidden_process_options() -> dict[str, object]:
+    if os.name != "nt":
+        return {}
+    startupinfo = subprocess.STARTUPINFO()
+    startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 0)
+    startupinfo.wShowWindow = getattr(subprocess, "SW_HIDE", 0)
+    return {
+        "creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        "startupinfo": startupinfo,
+    }
 
 
 def log(message: str) -> None:
@@ -54,6 +66,7 @@ def has_nvidia_gpu() -> bool:
             text=True,
             timeout=8,
             check=False,
+            **hidden_process_options(),
         )
     except Exception:
         return False
@@ -105,12 +118,12 @@ def log_disk_plan(plan: dict[str, object]) -> None:
 
 def run(command: list[str], cwd: Path | None = None) -> None:
     log(f"[run] {' '.join(command)}")
-    subprocess.run(command, cwd=str(cwd) if cwd else None, check=True)
+    subprocess.run(command, cwd=str(cwd) if cwd else None, check=True, **hidden_process_options())
 
 
 def run_optional(command: list[str], cwd: Path | None = None) -> bool:
     log(f"[run] {' '.join(command)}")
-    result = subprocess.run(command, cwd=str(cwd) if cwd else None, check=False)
+    result = subprocess.run(command, cwd=str(cwd) if cwd else None, check=False, **hidden_process_options())
     if result.returncode != 0:
         log(f"[warn] command failed with {result.returncode}; continuing")
         return False
@@ -126,6 +139,7 @@ def ensure_pip_available(python: Path, cwd: Path | None = None) -> None:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             timeout=30,
+            **hidden_process_options(),
         )
         return
     except Exception:
@@ -138,6 +152,7 @@ def ensure_pip_available(python: Path, cwd: Path | None = None) -> None:
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         timeout=30,
+        **hidden_process_options(),
     )
 
 

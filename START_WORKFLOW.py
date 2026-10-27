@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import platform
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -16,7 +18,7 @@ from urllib.parse import urlparse, urlunparse
 
 
 WORKSPACE_DIR = Path(__file__).resolve().parent
-APP_VERSION = "2026.06.22.4"
+APP_VERSION = "2026.10.23.2"
 
 
 def looks_like_comfy_base(path: Path) -> bool:
@@ -36,9 +38,12 @@ def default_comfy_base_dir() -> Path:
 BASE_DIR = default_comfy_base_dir()
 FRONTEND_URL = os.environ.get("BEGINNER_FRONTEND_URL", "http://127.0.0.1:7860")
 COMFY_URL_CONFIGURED = bool(os.environ.get("COMFY_URL"))
-COMFY_URL = os.environ.get("COMFY_URL", "http://127.0.0.1:8000").rstrip("/")
+COMFY_URL = os.environ.get("COMFY_URL", "http://127.0.0.1:8188").rstrip("/")
 REQUIREMENTS = WORKSPACE_DIR / "requirements.txt"
-LOCAL_CONFIG_FILE = WORKSPACE_DIR / ".wan22_workflow_config.json"
+REQUIREMENTS_LOCK = WORKSPACE_DIR / "requirements.lock"
+FRONTEND_REQUIRED_MODULES = ("uvicorn", "fastapi", "cv2", "PIL")
+LOCAL_CONFIG_FILE = WORKSPACE_DIR / ".local_ai_workbench_config.json"
+LEGACY_LOCAL_CONFIG_FILES = (WORKSPACE_DIR / ".wan22_workflow_config.json",)
 DOWNLOAD_CONFIG_FIELDS = {
     "hf_endpoint": "Hugging Face endpoint",
     "pip_index_url": "pip index URL",
@@ -47,18 +52,33 @@ DOWNLOAD_CONFIG_FIELDS = {
 SERVICE_MODES = {"server", "client", "both"}
 
 
+def hidden_process_options() -> dict[str, object]:
+    if platform.system() != "Windows":
+        return {}
+    startupinfo = subprocess.STARTUPINFO()
+    startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 0)
+    startupinfo.wShowWindow = getattr(subprocess, "SW_HIDE", 0)
+    return {
+        "creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        "startupinfo": startupinfo,
+    }
+
+
 def log(message: str) -> None:
     print(message, flush=True)
 
 
 def read_local_config() -> dict:
-    if not LOCAL_CONFIG_FILE.exists():
-        return {}
-    try:
-        data = json.loads(LOCAL_CONFIG_FILE.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-    return data if isinstance(data, dict) else {}
+    for config_file in (LOCAL_CONFIG_FILE, *LEGACY_LOCAL_CONFIG_FILES):
+        if not config_file.exists():
+            continue
+        try:
+            data = json.loads(config_file.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if isinstance(data, dict):
+            return data
+    return {}
 
 
 def saved_service_mode() -> str:
@@ -90,10 +110,13 @@ def frontend_bind_host() -> str:
 
 def write_local_config(config: dict) -> None:
     cleaned = {key: value for key, value in config.items() if value not in ("", None)}
-    if cleaned:
-        LOCAL_CONFIG_FILE.write_text(json.dumps(cleaned, ensure_ascii=False, indent=2), encoding="utf-8")
-    else:
-        LOCAL_CONFIG_FILE.unlink(missing_ok=True)
+    LOCAL_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    temporary = LOCAL_CONFIG_FILE.with_name(f"{LOCAL_CONFIG_FILE.name}.tmp")
+    try:
+        temporary.write_text(json.dumps(cleaned, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(temporary, LOCAL_CONFIG_FILE)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def normalize_http_url(value: str | None, label: str) -> str:
@@ -202,7 +225,14 @@ def get_json(url: str, timeout: float = 3.0) -> dict | None:
     try:
         with urllib.request.urlopen(url, timeout=timeout) as response:
             return json.loads(response.read().decode("utf-8"))
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
+    except (
+        urllib.error.URLError,
+        TimeoutError,
+        ConnectionError,
+        http.client.HTTPException,
+        json.JSONDecodeError,
+        UnicodeDecodeError,
+    ):
         return None
 
 
@@ -251,6 +281,7 @@ def python_version(python: Path) -> tuple[int, int, int] | None:
             check=True,
             text=True,
             timeout=10,
+            **hidden_process_options(),
         )
     except Exception:
         return None
@@ -273,6 +304,7 @@ def python_cmd_version(command: list[str]) -> tuple[int, int, int] | None:
             check=True,
             text=True,
             timeout=10,
+            **hidden_process_options(),
         )
     except Exception:
         return None
@@ -294,8 +326,13 @@ def python_has_module(python: Path, module: str) -> bool:
         capture_output=True,
         text=True,
         timeout=10,
+        **hidden_process_options(),
     )
     return result.returncode == 0
+
+
+def frontend_python_ready(python: Path) -> bool:
+    return all(python_has_module(python, module) for module in FRONTEND_REQUIRED_MODULES)
 
 
 def python_supported(python: Path) -> bool:
@@ -356,13 +393,14 @@ def discover_base_python() -> list[str] | None:
 
 
 def install_frontend_requirements(python: Path) -> None:
-    if not REQUIREMENTS.exists():
-        raise RuntimeError(f"requirements.txt not found: {REQUIREMENTS}")
+    requirements_file = REQUIREMENTS_LOCK if REQUIREMENTS_LOCK.exists() else REQUIREMENTS
+    if not requirements_file.exists():
+        raise RuntimeError(f"frontend requirements not found: {requirements_file}")
     log("Python:    installing frontend requirements")
     env = bootstrap_subprocess_env()
     ensure_pip_available(python, env)
     run_pip([str(python), "-m", "pip", "install", "-U", "pip"], env=env)
-    run_pip([str(python), "-m", "pip", "install", "-r", str(REQUIREMENTS)], env=env)
+    run_pip([str(python), "-m", "pip", "install", "-r", str(requirements_file)], env=env)
 
 
 def ensure_pip_available(python: Path, env: dict[str, str]) -> None:
@@ -374,11 +412,17 @@ def ensure_pip_available(python: Path, env: dict[str, str]) -> None:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             timeout=30,
+            **hidden_process_options(),
         )
         return
     except Exception:
         log("Python:    pip is not ready; running ensurepip")
-    subprocess.run([str(python), "-m", "ensurepip", "--upgrade"], check=True, env=env)
+    subprocess.run(
+        [str(python), "-m", "ensurepip", "--upgrade"],
+        check=True,
+        env=env,
+        **hidden_process_options(),
+    )
     subprocess.run(
         [str(python), "-m", "pip", "--version"],
         check=True,
@@ -386,6 +430,7 @@ def ensure_pip_available(python: Path, env: dict[str, str]) -> None:
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         timeout=30,
+        **hidden_process_options(),
     )
 
 
@@ -393,7 +438,7 @@ def run_pip(command: list[str], *, env: dict[str, str], attempts: int = 3) -> No
     last_error: subprocess.CalledProcessError | None = None
     for attempt in range(1, attempts + 1):
         try:
-            subprocess.run(command, check=True, env=env)
+            subprocess.run(command, check=True, env=env, **hidden_process_options())
             return
         except subprocess.CalledProcessError as exc:
             last_error = exc
@@ -414,10 +459,10 @@ def ensure_project_venv() -> Path | None:
         if base_python is None:
             return None
         log(f"Python:    creating frontend venv at {venv}")
-        subprocess.run(base_python + ["-m", "venv", str(venv)], check=True)
+        subprocess.run(base_python + ["-m", "venv", str(venv)], check=True, **hidden_process_options())
     if not python_supported(python):
         return None
-    if not python_has_module(python, "uvicorn") or not python_has_module(python, "fastapi"):
+    if not frontend_python_ready(python):
         install_frontend_requirements(python)
     return python
 
@@ -436,7 +481,7 @@ def find_python() -> Path | None:
         if key in seen:
             continue
         seen.add(key)
-        if candidate.exists() and python_supported(candidate) and python_has_module(candidate, "uvicorn"):
+        if candidate.exists() and python_supported(candidate) and frontend_python_ready(candidate):
             return candidate
     return None
 
@@ -458,7 +503,7 @@ def print_python_help() -> None:
 
 
 def print_usage() -> None:
-    log("Wan2.2 local video workflow")
+    log("Local AI video workflow")
     log("")
     log("Usage:")
     log("  python START_WORKFLOW.py")
@@ -579,12 +624,178 @@ def port_is_free(host: str, port: int) -> bool:
         return sock.connect_ex((host, port)) != 0
 
 
-def choose_frontend_url() -> str:
-    host, preferred_port = parsed_frontend_url(FRONTEND_URL)
-    for port in range(preferred_port, preferred_port + 20):
+FRONTEND_STOP_MARKERS = (
+    "beginner_frontend.app:app",
+    "START_WORKFLOW.py",
+    "START_WORKFLOW.ps1",
+    "START_WORKFLOW.command",
+)
+PROTECTED_PROCESS_MARKERS = (
+    "comfyui\\main.py",
+    "comfyui/main.py",
+    "\\comfyui\\resources\\comfyui\\main.py",
+)
+
+
+def local_addr_uses_port(local: str, port: int) -> bool:
+    local = local.strip().strip("[]")
+    if local.startswith("["):
+        return local.endswith(f"]:{port}")
+    return local.rsplit(":", 1)[-1] == str(port)
+
+
+def pids_listening_on_port(port: int) -> set[int]:
+    pids: set[int] = set()
+    try:
+        if platform.system() == "Windows":
+            try:
+                output = subprocess.check_output(
+                    ["netstat", "-ano", "-p", "tcp"],
+                    text=True,
+                    errors="replace",
+                    timeout=8,
+                    **hidden_process_options(),
+                )
+            except Exception:
+                output = subprocess.check_output(
+                    ["netstat", "-ano"],
+                    text=True,
+                    errors="replace",
+                    timeout=8,
+                    **hidden_process_options(),
+                )
+        else:
+            output = subprocess.check_output(
+                ["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN"],
+                text=True,
+                errors="replace",
+                timeout=8,
+            )
+    except Exception:
+        return pids
+    for line in output.splitlines():
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        if platform.system() == "Windows":
+            if "LISTENING" not in line.upper() or len(parts) < 5:
+                continue
+            if not local_addr_uses_port(parts[1], port):
+                continue
+            raw_pid = parts[-1]
+        else:
+            if parts[0].lower() == "command" or "LISTEN" not in line.upper():
+                continue
+            raw_pid = parts[1]
+        try:
+            pid = int(raw_pid)
+        except ValueError:
+            continue
+        if pid > 0:
+            pids.add(pid)
+    return pids
+
+
+def process_command_line(pid: int) -> str:
+    if pid <= 0:
+        return ""
+    try:
+        if platform.system() == "Windows":
+            output = subprocess.check_output(
+                [
+                    "powershell.exe",
+                    "-NoProfile",
+                    "-Command",
+                    f"(Get-CimInstance Win32_Process -Filter 'ProcessId={int(pid)}').CommandLine",
+                ],
+                text=True,
+                errors="replace",
+                timeout=8,
+                **hidden_process_options(),
+            )
+            return output.strip()
+        output = subprocess.check_output(["ps", "-p", str(pid), "-o", "args="], text=True, errors="replace", timeout=8)
+        return output.strip()
+    except Exception:
+        return ""
+
+
+def is_protected_process(command_line: str) -> bool:
+    lowered = command_line.lower().replace("/", "\\")
+    if "beginner_frontend" in lowered:
+        return False
+    return any(marker in lowered for marker in PROTECTED_PROCESS_MARKERS) or "comfyui\\main.py" in lowered
+
+
+def should_stop_process(pid: int, command_line: str, *, occupying_frontend_port: bool) -> bool:
+    if pid <= 0 or pid == os.getpid():
+        return False
+    if is_protected_process(command_line):
+        return False
+    lowered = command_line.lower()
+    if any(marker.lower() in lowered for marker in FRONTEND_STOP_MARKERS):
+        return True
+    return False
+
+
+def stop_pid(pid: int) -> None:
+    if pid <= 0 or pid == os.getpid():
+        return
+    try:
+        if platform.system() == "Windows":
+            subprocess.run(
+                ["taskkill", "/PID", str(pid), "/T", "/F"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=8,
+                **hidden_process_options(),
+            )
+            return
+        os.kill(pid, signal.SIGTERM)
+    except Exception:
+        return
+
+
+def stop_stale_frontend(url: str, timeout: float = 15.0) -> bool:
+    host, port = parsed_frontend_url(url)
+    if matching_frontend_health(url) or port_is_free(host, port):
+        return True
+    health = get_json(f"{url}/api/health", timeout=2) or {}
+    pids: set[int] = set(pids_listening_on_port(port))
+    try:
+        health_pid = int(health.get("process_id") or 0)
+    except (TypeError, ValueError):
+        health_pid = 0
+    if health_pid:
+        pids.add(health_pid)
+    listeners = set(pids)
+    to_stop: list[int] = []
+    for pid in sorted(pids):
+        command_line = process_command_line(pid)
+        occupying = pid in listeners
+        if should_stop_process(pid, command_line, occupying_frontend_port=occupying):
+            to_stop.append(pid)
+    if not to_stop and pids:
+        log(f"Frontend:  {url} is occupied, but the process is not a previous workbench instance.")
+        return False
+    other_dir = str(health.get("workspace_dir") or "").strip()
+    other_ver = str(health.get("app_version") or "").strip()
+    detail = " · ".join(part for part in (other_ver, other_dir) if part)
+    log(f"Frontend:  stopping old instance on {url}{f' ({detail})' if detail else ''}")
+    for pid in to_stop:
+        log(f"Frontend:  stopping PID {pid}")
+        stop_pid(pid)
+    deadline = time.time() + timeout
+    while time.time() < deadline:
         if port_is_free(host, port):
-            return frontend_url_for_port(port)
-    return frontend_url_for_port(preferred_port)
+            log("Frontend:  old instance stopped")
+            return True
+        time.sleep(0.4)
+    return port_is_free(host, port)
+
+
+def choose_frontend_url() -> str:
+    return FRONTEND_URL
 
 
 def matching_frontend_health(url: str) -> bool:
@@ -635,7 +846,7 @@ def main() -> int:
     if download_settings_result is not None:
         return download_settings_result
 
-    log("Wan2.2 local video workflow")
+    log("Local AI video workflow")
     log(f"Workspace: {WORKSPACE_DIR}")
     log(f"Base dir:  {BASE_DIR}")
     log(f"Service:   {effective_service_mode()} ({'configured' if service_mode_configured() else 'first-run selection pending'})")
@@ -655,9 +866,11 @@ def main() -> int:
             webbrowser.open(FRONTEND_URL)
         return 0
 
-    if get_json(f"{FRONTEND_URL}/api/environment", timeout=2):
-        log(f"Frontend:  {FRONTEND_URL} is occupied by an older or different frontend.")
-        log("           A fresh compatible frontend will be started on the next free port.")
+    host, fixed_port = parsed_frontend_url(FRONTEND_URL)
+    if not port_is_free(host, fixed_port) or get_json(f"{FRONTEND_URL}/api/health", timeout=2):
+        if not stop_stale_frontend(FRONTEND_URL):
+            log(f"Frontend:  {FRONTEND_URL} is still occupied after stopping the old instance.")
+            return 1
 
     try:
         python = find_python()
@@ -674,6 +887,10 @@ def main() -> int:
     if python is None:
         print_python_help()
         return 1
+    if not port_is_free(host, fixed_port) and not stop_stale_frontend(FRONTEND_URL):
+        log(f"Frontend:  {FRONTEND_URL} is still occupied after stopping the old instance.")
+        return 1
+
     launch_url = choose_frontend_url()
     _, port = parsed_frontend_url(launch_url)
     bind_host = frontend_bind_host()
@@ -691,7 +908,12 @@ def main() -> int:
     log(f"Python:    {python}")
     log(f"Frontend:  starting {launch_url} (bind {bind_host})")
 
-    process = subprocess.Popen(command, cwd=str(WORKSPACE_DIR), env=env)
+    process = subprocess.Popen(
+        command,
+        cwd=str(WORKSPACE_DIR),
+        env=env,
+        **hidden_process_options(),
+    )
     if not wait_for_frontend(launch_url):
         log("Frontend did not become ready. Check the terminal output above.")
         return process.poll() or 1

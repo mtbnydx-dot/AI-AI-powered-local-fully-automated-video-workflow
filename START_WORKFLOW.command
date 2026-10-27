@@ -14,7 +14,7 @@ fi
 
 if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
   cat <<'EOF'
-Wan2.2 local video workflow
+Local AI video workflow
 
 Usage:
   ./START_WORKFLOW.command

@@ -4,6 +4,7 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+.playwright-cli/
 
 # Virtual environments
 .venv/
@@ -14,9 +15,13 @@ env/
 *.log
 *.out.log
 *.err.log
+.runtime/
+.runtime_*.json
 .env
 .env.*
+.local_ai_workbench_config.json
 .wan22_workflow_config.json
+github_upload/
 
 # ComfyUI local data. Keep these out of GitHub.
 models/
@@ -55,3 +60,6 @@ custom_nodes/
 Thumbs.db
 .vscode/
 .idea/
+.claude/
+.zcode/
+nul

@@ -1,10 +1,10 @@
 # Start Here
 
-这是给第一次使用者的最短路径。模型文件不在仓库里，前端会按你的电脑配置提示安装。
+这是给第一次使用者的最短路径（产品名：本地 AI 视频工作台，旧名 Wan22 工作流）。模型文件不在仓库里，前端会按你的电脑配置提示安装。
 
 ## 1. 启动
 
-Windows：双击 `START_WORKFLOW.bat`。如果没有 Python，启动器会优先询问是否用 winget 安装；没有 winget 时会提示官方 Python 下载页。
+Windows：双击本目录的 `START_WORKFLOW.bat`。如果上一级文件夹还有 `START.bat` 或 `启动.bat`，那是同一个入口。如果没有 Python，启动器会优先询问是否用 winget 安装；没有 winget 时会提示官方 Python 下载页。
 
 macOS / Linux：
 
@@ -21,7 +21,7 @@ chmod +x ./START_WORKFLOW.command
 python START_WORKFLOW.py
 ```
 
-启动后浏览器会打开本地前端。先停在第 1 步 `环境侦测`。
+启动后浏览器会打开本地前端。尚未配置环境时先到「环境与模型」完成准备；日常直接进入「图片创作」「视频生成」或「视频处理」。没有强制六步流程。
 
 第一次打开前端时，先在 `运行入口模式` 里选这台机器的角色：
 
@@ -43,27 +43,33 @@ Windows 也可以把上面的 `python START_WORKFLOW.py` 换成 `START_WORKFLOW.
 
 ## 2. 在前端里做
 
-1. 先看 `环境侦测` 给出的推荐档位。
+1. 先看「环境与安装」给出的平台策略和推荐模型。模型会按用途与能力分组，不会固定到某个家族。
 2. 如果 Hugging Face、PyPI 或 PyTorch 下载不通，可以在 `下载源与代理` 里填 Hugging Face 镜像地址、pip 镜像地址，或填本机 HTTP 代理地址；留空就是官方源且不使用额外代理。填完可直接点 `测试下载源`，系统会先保存当前设置，再确认这些下载站点是否可达。
 3. 不想折腾参数时，直接点击 `一键准备环境`。ComfyUI 未连接时会安装/更新源码版 ComfyUI；已经连接 ComfyUI Desktop 或其他 ComfyUI 时，会跳过源码安装，把节点和模型安装到当前 active base。保存过的网络设置会自动传给 ComfyUI 安装、PyTorch/pip 依赖安装、节点安装和模型下载；pip 缺失会自动 `ensurepip`，pip 下载失败会重试。
 4. 如果你电脑里已有 ComfyUI Desktop，但它还没启动，环境页会显示 `ComfyUI runtime`。只要检测到 Desktop bundled runtime 和可用 Python，`启动 ComfyUI` 会直接复用它，不会要求你重新装一份源码版。
 5. 如果你想手动控制，也可以分别点击 `安装/更新 ComfyUI`、`启动 ComfyUI`、选择 `安装档位`、再点 `一键安装/修复缺失项`。
 6. 安装节点或模型后，如果页面提示需要重启 ComfyUI，就重新启动 ComfyUI，再点 `重新侦测`。
 7. 点击 `生成链路测试`，确认 ComfyUI 队列、模型、节点和输出目录真的能跑通一个短视频。
-8. 上传关键帧，按页面步骤继续生成、修复、插帧、超分。
+8. 创建新片段进入「视频生成」，填写提示词及模型要求的素材即可；处理已有视频进入「视频处理」，直接选去闪、插帧、超分或拼接。生成结果也能一键交给这些工具。
 
-如果你已经把模型或权重文件放在项目上级目录的 ComfyUI `models/` 里，安装器会自动识别并复用同名且大小匹配的文件；前端会显示 `本地缓存可用`。高级用法可以设置 `WAN22_LOCAL_ASSET_DIRS`，用系统路径分隔符放多个缓存目录，安装时会先找本地文件，找不到才下载。
+如果你已经把模型或权重文件放在项目上级目录的 ComfyUI `models/` 里，安装器会自动识别并复用同名且大小匹配的文件；前端会显示 `本地缓存可用`。高级用法仍可使用兼容变量 `WAN22_LOCAL_ASSET_DIRS`，用系统路径分隔符放多个缓存目录，安装时会先找本地文件，找不到才下载。
 
-推荐档位：
+自动推荐基线：
 
-- 80GB+ NVIDIA：`CUDA 完整 Wan2.2 档`
-- 24GB-64GB NVIDIA：`CUDA Wan5B 保守档`
-- Apple Silicon：按前端推荐的 Mac 档位
+- 80GB+ NVIDIA：MiniMax H3 原生音视频；LTX-Video 2.5、LTX-Video 2.3 与 Wan2.2 A14B 可自选
+- 40GB-79GB NVIDIA：LTX-Video 2.5 Distilled INT8
+- 16GB-39GB NVIDIA：HunyuanVideo 1.5 480P FP8
+- 8GB-15GB NVIDIA：LTXV 0.9.8 低分辨率短镜头
+- Apple Silicon：按统一内存选择 LTX 档，高内存可见 Wan5B 实验项
 - 只做后期：`仅后期工具`
+
+手动切换模型后，安装计划、生成步骤、图片输入、帧率限制和参数解释都会同步切换。
+
+选择 LTX-Video 2.5 时，先在 `https://huggingface.co/Lightricks/LTX-2.5` 接受许可并运行 `hf auth login`。它要求 ComfyUI `0.32.0+`；「环境与安装」页会检查版本，未授权或版本过低时会给出明确提示。
 
 ## 3. 出问题时
 
-先回到第 1 步 `环境侦测`。
+先回到「环境与安装」标签页。
 
 如果需要别人帮你排查，点击右侧 `下载诊断包`，把下载的 JSON 文件发给维护者；也可以点 `复制诊断信息` 直接复制到聊天窗口。诊断内容会脱敏代理账号密码。
 
@@ -90,4 +96,4 @@ Windows 还可以检查双击入口：
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\START_WORKFLOW.ps1 --check
 ```
 
-发布包目录是 `github_upload/wan22-local-video-workflow`；如果你已经打开的是这个目录，它本身就是发布包根目录。
+当前 GitHub 发布包目录仍保留兼容名称 `github_upload/wan22-local-video-workflow`；如果你已经打开的是这个目录，它本身就是发布包根目录。产品界面与配置已使用通用的“本地 AI 视频工作台”名称。

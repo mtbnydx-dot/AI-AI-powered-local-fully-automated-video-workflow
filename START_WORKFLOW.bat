@@ -3,6 +3,17 @@ setlocal
 
 cd /d "%~dp0"
 
+REM Default to ComfyUI Desktop active base. If COMFY_BASE_DIR is already set, respect the user value.
+REM This keeps the frontend models/custom_nodes/input/output in sync with the running ComfyUI Desktop.
+if not defined COMFY_BASE_DIR (
+    if exist "%~dp0..\models\" if exist "%~dp0..\custom_nodes\" if exist "%~dp0..\input\" if exist "%~dp0..\output\" goto :base_dir_done
+    if defined LOCALAPPDATA (
+        set "DEFAULT_COMFY_BASE=%LOCALAPPDATA%\Comfy-Desktop\ComfyUI-Shared"
+        if exist "%DEFAULT_COMFY_BASE%" set "COMFY_BASE_DIR=%DEFAULT_COMFY_BASE%"
+    )
+)
+:base_dir_done
+
 if /i "%~1"=="--check" (
     echo START_WORKFLOW.bat OK
     exit /b 0
@@ -10,6 +21,20 @@ if /i "%~1"=="--check" (
 if /i "%~1"=="--help" goto :help
 if /i "%~1"=="-h" goto :help
 if /i "%~1"=="/?" goto :help
+
+REM Normal startup modes are detached and fully hidden. Diagnostics and
+REM settings commands keep the console path below so their output stays visible.
+if "%~1"=="" goto :silent_start
+if /i "%~1"=="--no-browser" goto :silent_start
+goto :console_start
+
+:silent_start
+if exist "%~dp0START_WORKFLOW.vbs" (
+    wscript.exe //nologo "%~dp0START_WORKFLOW.vbs" %*
+    exit /b 0
+)
+
+:console_start
 
 where powershell.exe >nul 2>nul
 if errorlevel 1 (
@@ -37,7 +62,7 @@ if not "%EXIT_CODE%"=="0" (
 exit /b %EXIT_CODE%
 
 :help
-echo Wan2.2 local video workflow
+echo Local AI video workflow
 echo.
 echo Usage:
 echo   START_WORKFLOW.bat

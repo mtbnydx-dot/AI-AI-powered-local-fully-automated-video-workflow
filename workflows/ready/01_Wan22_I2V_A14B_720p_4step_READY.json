@@ -60,7 +60,7 @@
         "Node name for S&R": "LoadImage"
       },
       "widgets_values": [
-        "wan22_sample_esports_keyframe.png",
+        "keyframe-upload-required.png",
         "image"
       ]
     },

@@ -27,6 +27,8 @@ REQUIRED_FRONTEND_MODULES = {
     "uvicorn": "uvicorn",
     "httpx": "httpx",
     "python-multipart": "multipart",
+    "Pillow": "PIL",
+    "OpenCV": "cv2",
 }
 OPTIONAL_FRONTEND_MODULES = {
     "imageio-ffmpeg": "imageio_ffmpeg",
@@ -43,10 +45,22 @@ DOWNLOAD_URLS = {
     "pypi.org": "https://pypi.org/",
     "download.pytorch.org": "https://download.pytorch.org/",
 }
-HF_ENDPOINT_ENV_NAMES = ("WAN22_HF_ENDPOINT", "HF_ENDPOINT")
+
+
+def hidden_process_options() -> dict[str, object]:
+    if os.name != "nt":
+        return {}
+    startupinfo = subprocess.STARTUPINFO()
+    startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 0)
+    startupinfo.wShowWindow = getattr(subprocess, "SW_HIDE", 0)
+    return {
+        "creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        "startupinfo": startupinfo,
+    }
+HF_ENDPOINT_ENV_NAMES = ("LOCAL_AI_HF_ENDPOINT", "WAN22_HF_ENDPOINT", "HF_ENDPOINT")
 PROXY_ENV_NAMES = ("HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "https_proxy", "http_proxy", "all_proxy")
 PIP_INDEX_ENV_NAMES = ("PIP_INDEX_URL", "pip_index_url")
-USER_AGENT = "wan22-local-video-workflow/2026"
+USER_AGENT = "local-ai-video-workbench/2026"
 WORKSPACE_DIR = Path(__file__).resolve().parents[1]
 
 
@@ -113,7 +127,14 @@ def looks_like_comfy_desktop_runtime(install_dir: Path) -> bool:
 
 def command_version(command: list[str], timeout: int = 8) -> str:
     try:
-        result = subprocess.run(command, capture_output=True, text=True, timeout=timeout, check=False)
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+            **hidden_process_options(),
+        )
     except Exception as exc:
         return str(exc)
     text = (result.stdout or result.stderr or "").strip().splitlines()
@@ -247,6 +268,7 @@ def missing_modules_from_python(python: Path, modules: dict[str, str]) -> list[s
             text=True,
             timeout=15,
             check=False,
+            **hidden_process_options(),
         )
     except Exception:
         return None
@@ -430,7 +452,7 @@ def check_disk(path: Path) -> dict[str, Any]:
         "label": "磁盘空间",
         "status": status,
         "blocking": status == "blocked",
-        "message": f"{usage_path} 剩余 {free_gb} GB。Wan5B/后期建议至少 30GB，完整 A14B 档需要更多空间。",
+        "message": f"{usage_path} 剩余 {free_gb} GB。视频模型通常需要 15GB-80GB+，请以当前模型安装计划显示的精确容量为准。",
         "action": "" if status != "blocked" else "清理磁盘，或把 COMFY_BASE_DIR/COMFY_INSTALL_DIR 指到更大的磁盘。",
         "free_gb": free_gb,
         "path": str(usage_path),

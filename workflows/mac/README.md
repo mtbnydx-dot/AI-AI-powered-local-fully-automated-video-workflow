@@ -11,7 +11,7 @@ keyframe, seed, frame count, and selected resolution.
 
 Put LTX files in:
 
-- `models/checkpoints/ltx-video-2b-v0.9.5.safetensors`
+- `models/checkpoints/ltxv-2b-0.9.8-distilled-fp8.safetensors`
 - `models/text_encoders/t5xxl_fp16.safetensors`
 
 Wan5B experiment additionally needs:

@@ -44,4 +44,4 @@ if (-not $environment.ok) {
     exit 1
 }
 
-Write-Host "`nLocal video workflow environment verified." -ForegroundColor Green
+Write-Host "`nLocal AI video workbench setup verified." -ForegroundColor Green

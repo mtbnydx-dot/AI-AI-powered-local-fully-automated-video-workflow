@@ -10,7 +10,7 @@ if ($scriptArgs.Length -gt 0 -and $scriptArgs[0] -ieq "--check") {
 }
 
 if ($scriptArgs.Length -gt 0 -and ($scriptArgs[0] -ieq "--help" -or $scriptArgs[0] -ieq "-h" -or $scriptArgs[0] -ieq "/?")) {
-    Write-Host "Wan2.2 local video workflow"
+    Write-Host "Local AI video workflow"
     Write-Host ""
     Write-Host "Usage:"
     Write-Host "  .\START_WORKFLOW.ps1"
@@ -116,6 +116,16 @@ function Open-PythonDownloadPage {
 }
 
 Set-Location -LiteralPath $workspace
+
+# Default to ComfyUI Desktop active base. If COMFY_BASE_DIR is already set, respect the user value.
+# This keeps the frontend models/custom_nodes/input/output in sync with the running ComfyUI Desktop.
+if (-not $env:COMFY_BASE_DIR -and $env:LOCALAPPDATA) {
+    $defaultComfyBase = Join-Path $env:LOCALAPPDATA "Comfy-Desktop\ComfyUI-Shared"
+    if (Test-Path -LiteralPath $defaultComfyBase) {
+        $env:COMFY_BASE_DIR = $defaultComfyBase
+    }
+}
+
 $pythonCommand = @(Find-Python)
 if (-not $pythonCommand.Length) {
     if (Get-Command winget -ErrorAction SilentlyContinue) {

@@ -1,6 +1,6 @@
 # 项目审查记录
 
-审查日期：2026-06-22
+审查日期：2026-06-22（2026-08-22 增补一轮修复，见文末「2026-08-22 增补」）
 
 ## 结论
 
@@ -152,3 +152,43 @@
 - 发布包卫生扫描额外拦截 `.pt`、`.onnx`、`.bin`、`.zip`、`.tar*`、`.7z`、`.rar` 等常见模型/下载残留
 - `python scripts/self_check.py --json` 在根工程和 GitHub 上传目录均通过
 - `python scripts/prerequisite_doctor.py --network --json` 可确认项目 `.venv` 依赖状态、Git/ffmpeg/磁盘/权限和下载源连通性；本轮结果仅 Hugging Face 为 warning。
+
+## 2026-08-22 增补
+
+版本 `2026.08.22.1`，本轮修复与改进：
+
+- 静态资源版本号改由后端 `/` 路由按 `APP_VERSION` 注入 `?v=`，不再手工维护 index.html 里的版本 query；忘改版本号导致 immutable 缓存下用户拿旧 JS/CSS 的问题根治。
+- 局域网安全：`/api/view`、`/api/outputs*`、`/api/jobs*`、`/api/image-studio/history`、`/api/image-studio/output` 这些能读取生成内容的 GET 接口，在非本机访问且配置了访问令牌时也要求令牌；客户端模式的媒体 URL（`<img>`/`<video>`）自动附带 `token` query（与 EventSource 同机制）。
+- 输出删除（单删/批删/一键清空）改为移入输出目录下 `_trash` 回收目录，保留 7 天后自动清理；`一键清空` 改为页面内二次确认，不再用浏览器系统弹窗；输出列表与清空均跳过 `_trash`。
+- 环境页 OS 显示修正：Windows 11（build>=22000）不再显示为 Windows 10。
+- 后期步骤（微调/插帧/超分/拼接）取消硬性步骤前置——它们都支持"最近完成的视频"或手动上传作为输入；无输入时提交报错兜底。
+- 新增"项目标签"：视频生成、后期与拼接步骤可填项目名，输出自动归档到 `local_ai_workbench/<项目>/` 子目录（ComfyUI workflow 走 `output_prefix` contextvar，本地 ffmpeg 拼接走 `run_stitch(project=…)`）；任务记录带 `project` 字段，最近任务可按项目筛选；标签在浏览器本地记忆并提供 datalist 候选。
+- 工作流页减负：历史输出管理器整体迁入「下载中心」，工作流页保留一个跳转入口；最近任务默认只显示 5 条（加载更多每次 +10）。
+- 无限制"一键玩法"预设与动作抽屉现在只在无限制模式实际开启后显示，默认界面不再出现相关预设。
+- 首屏闪烁修正：index.html 初始步骤标题与第 1 步一致；顶部主视图 Tab 去掉数字编号，避免与向导内 1-6 步的编号混淆。
+- 清理 `models/vae/` 中混入的驱动/固件安装包（BIOS、Intel ME、MSI Center、雷电固件等 8 项）至 `_not_models/`。
+- `scripts/release_smoke.py` 的 `.bat` 冒烟改用绝对路径调用：新版 Windows（build 26200+）的 cmd 不再从当前目录解析裸 `.bat` 名。
+- 发布镜像补齐漂移文件（`model_catalog.py`、`install_workflow_assets.py`、`image-studio.js`、`nsfw_playbook.py`），`self_check --json` 与 `release_smoke --json` 均通过。
+
+### 同日第二批（流水线与前端布局）
+
+- 新增「生成后自动后期」流水线：生成/微调/插帧步骤成功后，按勾选自动串行提交 微调(去闪)→RIFE 插帧→清晰度增强，任一步失败即停并保留日志；勾选状态本地记忆。旧「生成后自动进入 RIFE」开关（只切页不提交）被流水线取代；面板显示在生成、微调、插帧三步的表单内。
+- 环境页首屏收敛（渐进式披露）：开箱前置条件、运行入口模式（首次运行未保存模式时自动展开）、更换模型/量化/下载位置、每一步可用模型、加载诊断、低配 mac 路线全部收进可折叠抽屉；首屏保留 环境体检 + 当前模型卡片 + 一键准备/一键安装 + 缺失项。
+- 模型下拉新增「只显示本页可生成的模型」过滤（默认开，40 → 33 项，当前选中项始终保留），偏好本地记忆。
+- 操作流打磨：视频工作流表单的提交操作栏吸底（长表单滚动时主按钮始终可见）；批量关键帧独立成「批量任务」抽屉并提示与流水线互斥。
+
+### 同日第三批（找模型与下载优化）
+
+- 模型目录批量就绪状态：`/api/model-catalog` 与环境 payload 现在给每个模型附 `files_found/files_total/install_state`（ready/partial/missing/unknown），复用 `catalog_file_index` 的 TTL 缓存索引，40+ 模型标注只需一次目录扫描。
+- 「模型浏览器」：环境页抽屉内新增关键词搜索（名称/系列/量化/能力/用途多词模糊匹配）与就绪状态筛选（已就绪/部分下载/未下载），列表顶部显示“显示 X / 40 · 本机已就绪 N 个”；模型卡片带就绪徽章（已就绪 4/4 / 部分下载 / 未下载），点卡片即设为目标模型。
+- 目标模型下拉每项前缀 `✓`（已就绪）/ `◐`（部分下载），不用逐个点开就能看出哪些模型可直接用。
+- 「只显示本页可生成」开关现在同时作用于下拉和卡片列表。
+- 下载中心新增「一键续传全部断点」：有可续传 `.part` 时在“未完成断点”统计卡显示，串行逐个提交续传（后端安装任务互斥），失败逐项列出。
+
+### 同日第四批（在线搜索新模型并入库）· 版本 2026.08.22.2
+
+- 新增在线模型搜索：模型浏览器内可直接搜 Hugging Face（走已配置的 HF 镜像 endpoint 与代理）和 Civitai（默认 nsfw=false；HTTP 451 地区限制会提示配代理）。`GET /api/model-search`、`GET /api/model-search/files`（HF 仓库权重文件懒加载，含大小）。
+- 一键入库：搜索结果展开后勾选权重文件（.safetensors/.gguf/.ckpt/.pt/.pth/.bin）、选择目标目录（按模型类型自动预选 checkpoints/loras/vae 等白名单子目录），「导入并下载」或「仅入库」。入库条目持久化在本地配置 `user_model_catalog`，合并进模型目录（family=用户导入），参与就绪状态标注、搜索和筛选；卡片带「下载/续传」「从目录移除」（移除不删文件）。
+- 任意 URL 下载复用既有安装管线：`install_workflow_assets.py` 新增 `--direct-download <spec.json>` 模式，复用 `.part` 断点续传/重试/HF 镜像与令牌逻辑，日志格式不变，前端进度、暂停/继续、下载中心展示全部复用；下载规格存 `.user_downloads/`，暂停后可原命令恢复。
+- 安全边界：下载 URL 仅允许 https 的 huggingface.co / civitai.com；目标目录白名单校验；文件名仅清洗非法字符、保留原名（工作流需按原名引用）。
+- 本轮真实端到端验证：HF 搜索 "wan 2.2 i2v"、"flux krea" 正常返回；QuantStack GGUF 仓库文件列表带大小；真实下载 ai-forever/Real-ESRGAN 的 RealESRGAN_x2.pth（67MB）成功落盘 `models/upscale_models/`，目录状态自动翻转 ready 1/1。
