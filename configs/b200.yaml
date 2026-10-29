@@ -1,0 +1,29 @@
+generator: comfyui
+comfyui:
+  urls:
+    - http://127.0.0.1:8188
+    - http://127.0.0.1:8189
+    - http://127.0.0.1:8190
+    - http://127.0.0.1:8191
+    - http://127.0.0.1:8192
+    - http://127.0.0.1:8193
+    - http://127.0.0.1:8194
+  timeout: 3600
+  parameters:
+    steps: 20
+review:
+  backend: vllm
+  url: http://127.0.0.1:8000/v1
+  model: qwen-review
+  sample_frames: 8
+  max_frame_size: 640
+media:
+  width: 864
+  height: 480
+  fps: 24
+  upscale: comfyui
+  upscale_factor: 2
+workers: 7
+max_attempts: 3
+max_film_reviews: 3
+human_approval: true

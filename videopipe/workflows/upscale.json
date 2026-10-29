@@ -1,0 +1,116 @@
+{
+  "load": {
+    "class_type": "LoadVideo",
+    "inputs": {
+      "file": "{{reference_video}}"
+    }
+  },
+  "components": {
+    "class_type": "GetVideoComponents",
+    "inputs": {
+      "video": [
+        "load",
+        0
+      ]
+    }
+  },
+  "size": {
+    "class_type": "GetImageSize",
+    "inputs": {
+      "image": [
+        "components",
+        0
+      ]
+    }
+  },
+  "width": {
+    "class_type": "ComfyMathExpression",
+    "inputs": {
+      "expression": "a * b",
+      "values.a": [
+        "size",
+        0
+      ],
+      "values.b": "{{factor}}"
+    }
+  },
+  "height": {
+    "class_type": "ComfyMathExpression",
+    "inputs": {
+      "expression": "a * b",
+      "values.a": [
+        "size",
+        1
+      ],
+      "values.b": "{{factor}}"
+    }
+  },
+  "model": {
+    "class_type": "UpscaleModelLoader",
+    "inputs": {
+      "model_name": "{{upscale_model}}"
+    }
+  },
+  "upscale": {
+    "class_type": "ImageUpscaleWithModel",
+    "inputs": {
+      "upscale_model": [
+        "model",
+        0
+      ],
+      "image": [
+        "components",
+        0
+      ]
+    }
+  },
+  "resize": {
+    "class_type": "ImageScale",
+    "inputs": {
+      "image": [
+        "upscale",
+        0
+      ],
+      "upscale_method": "lanczos",
+      "width": [
+        "width",
+        1
+      ],
+      "height": [
+        "height",
+        1
+      ],
+      "crop": "disabled"
+    }
+  },
+  "video": {
+    "class_type": "CreateVideo",
+    "inputs": {
+      "images": [
+        "resize",
+        0
+      ],
+      "audio": [
+        "components",
+        1
+      ],
+      "fps": [
+        "components",
+        2
+      ]
+    }
+  },
+  "save": {
+    "class_type": "SaveVideo",
+    "inputs": {
+      "video": [
+        "video",
+        0
+      ],
+      "filename_prefix": "{{filename_prefix}}",
+      "format": "mp4",
+      "format.codec": "h264",
+      "codec": "h264"
+    }
+  }
+}

@@ -1,0 +1,19 @@
+generator: comfyui
+comfyui:
+  urls: [http://127.0.0.1:8188]
+  timeout: 3600
+  parameters:
+    steps: 20
+review:
+  backend: cpu
+  sample_frames: 8
+media:
+  width: 864
+  height: 480
+  fps: 24
+  upscale: comfyui
+  upscale_factor: 2
+workers: 1
+max_attempts: 3
+max_film_reviews: 3
+human_approval: true
