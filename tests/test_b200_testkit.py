@@ -1,12 +1,14 @@
 import importlib.util
 import json
+import shutil
 import tarfile
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from videopipe.media import MediaInfo
+from videopipe.media import MediaInfo, assemble, inspect_video, run_ffmpeg
+from videopipe.models import MediaConfig
 from videopipe.records import Events, write_json
 
 
@@ -51,10 +53,54 @@ class B200TestkitTests(unittest.TestCase):
         self.assertEqual(report["status"], "incomplete")
         self.assertFalse(report["cases"]["smoke"]["verified"])
         self.assertTrue(report["cases"]["full"]["verified"])
+        self.assertEqual(report["cases"]["full"]["planned_seconds"], 320)
+        self.assertEqual(report["cases"]["full"]["expected_seconds"], 320)
         with tarfile.open(self.root / "delivery/logs.tar.gz") as archive:
             names = archive.getnames()
         self.assertIn("services/vllm.log", names)
         self.assertFalse(any(name.endswith(".mp4") for name in names))
+
+    def test_real_delivery_uses_measured_manifest_duration_and_reports_fallback(self):
+        clip = self.root / "clip.mp4"
+        run_ffmpeg([
+            "-loglevel", "error", "-f", "lavfi", "-i", "color=c=navy:s=576x1024:r=24:d=0.5",
+            "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=0.5",
+            "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-shortest", str(clip),
+        ])
+        measured = inspect_video(clip).duration
+        final = assemble([clip, clip], self.root / "assembled.mp4", MediaConfig(width=576, height=1024, fps=24))
+        manifest = [{"shot_id": "shot-1", "duration": measured},
+                    {"shot_id": "shot-2", "duration": measured}]
+        for name in runner.CASES:
+            run = self.root / "runs" / name
+            shutil.copy2(final, run / "final.mp4")
+            write_json(run / "film/version-001/manifest.json", manifest)
+            write_json(run / "state.json", {
+                "status": "complete", "final": "final.mp4", "manifest": "film/version-001/manifest.json",
+                "shots": {"shot-1": {"attempts": 1, "selection": {"reason": "review_pass"}},
+                          "shot-2": {"attempts": 1, "selection": {"reason": "review_unavailable"}}},
+            })
+
+        report = runner.collect(self.root)
+        self.assertEqual(report["status"], "complete")
+        for name, (_, _, planned) in runner.CASES.items():
+            row = report["cases"][name]
+            self.assertTrue(row["verified"])
+            self.assertEqual(row["planned_seconds"], planned)
+            self.assertEqual(row["expected_seconds"], 2 * measured)
+            self.assertEqual(row["visual_pass_count"], 1)
+            self.assertEqual(row["fallback_shots"], ["shot-2"])
+            self.assertTrue(row["media"]["has_audio"])
+            self.assertTrue(Path(row["video"]).is_file())
+        self.assertIn("技术媒体验证通过不等于画面审核通过", (self.root / "delivery/summary.md").read_text())
+
+        # A measured manifest still constrains the actual delivery; it does not disable duration validation.
+        write_json(self.root / "runs/smoke/film/version-001/manifest.json", [{"shot_id": "shot-1", "duration": 2.0}])
+        report = runner.collect(self.root)
+        self.assertFalse(report["cases"]["smoke"]["verified"])
+        self.assertTrue(report["cases"]["full"]["verified"])
+        self.assertFalse((self.root / "delivery/tide-40s.mp4").exists())
 
     def test_failed_stage_records_error_and_reraises(self):
         events = Events(self.root)

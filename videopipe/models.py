@@ -8,11 +8,19 @@ class InputModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class AssetBinding(InputModel):
+    asset_id: str
+    path: Path
+    role: Literal["first_frame", "review_only"]
+    prompt_ref: str = ""
+
+
 class Shot(InputModel):
     id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
     prompt: str = Field(min_length=1)
     negative_prompt: str = ""
     reference_images: list[Path] = Field(default_factory=list)
+    asset_bindings: list[AssetBinding] = Field(default_factory=list)
     duration: float = Field(default=3, gt=0)
     width: int = Field(default=864, gt=0, multiple_of=2)
     height: int = Field(default=480, gt=0, multiple_of=2)
@@ -48,6 +56,16 @@ class ReviewConfig(InputModel):
     max_tokens: int = Field(default=2048, gt=0)
     timeout: float = Field(default=300, gt=0)
     reject_once: list[str] = Field(default_factory=list)
+    workers: int = Field(default=2, ge=1)
+
+
+class ASRConfig(InputModel):
+    enabled: bool = False
+    model: str = "large-v3"
+    gpu: int = Field(default=7, ge=0)
+    compute_type: str = "int8_float16"
+    language: str | None = None
+    timeout: float = Field(default=600, gt=0)
 
 
 class MediaConfig(InputModel):
@@ -63,9 +81,11 @@ class PipelineConfig(InputModel):
     generator: Literal["cpu", "comfyui"] = "cpu"
     comfyui: ComfyConfig = Field(default_factory=ComfyConfig)
     review: ReviewConfig = Field(default_factory=ReviewConfig)
+    asr: ASRConfig = Field(default_factory=ASRConfig)
     media: MediaConfig = Field(default_factory=MediaConfig)
-    max_attempts: int = Field(default=3, ge=1)
-    max_film_reviews: int = Field(default=3, ge=1)
+    max_attempts: int = Field(default=3, ge=1, le=3)
+    # Read legacy configuration without restoring the removed film-review loop.
+    max_film_reviews: int | None = Field(default=None, ge=1, exclude=True)
     workers: int = Field(default=1, ge=1)
     human_approval: bool = True
 
@@ -74,11 +94,13 @@ class ReviewIssue(InputModel):
     shot_id: str | None = None
     category: Literal["generation", "editing"]
     message: str
-    suggested_prompt: str | None = None
+    timestamps: list[float] = Field(default_factory=list)
 
 
 class ReviewResult(InputModel):
     passed: bool
+    available: bool = True
     summary: str
     issues: list[ReviewIssue] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
 

@@ -28,8 +28,10 @@ class CPUGenerator:
 
     def _reference_canvas(self, shot: Shot) -> Image.Image:
         size = (shot.width * 2, shot.height * 2)
-        if shot.reference_images:
-            with Image.open(shot.reference_images[0]) as image:
+        first_frames = ([asset.path for asset in shot.asset_bindings if asset.role == "first_frame"]
+                        if shot.asset_bindings else shot.reference_images[:1])
+        if first_frames:
+            with Image.open(first_frames[0]) as image:
                 canvas = ImageOps.fit(image.convert("RGB"), size, method=Image.Resampling.LANCZOS)
         else:
             canvas = Image.new("RGB", size, "#303944")

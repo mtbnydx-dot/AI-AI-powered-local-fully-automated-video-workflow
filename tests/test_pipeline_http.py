@@ -6,7 +6,6 @@ from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-import httpx
 from PIL import Image
 
 from tests.test_comfyui import ComfyHandler
@@ -19,6 +18,12 @@ class SequencedReviewHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         self.server.requests.append(request)
+        if getattr(self.server, "fail_third_generation", False) and len(self.server.requests) == 2:
+            self.server.comfy.mode = "error"
+        if getattr(self.server, "concurrency_gate", None):
+            if len(self.server.requests) >= 2:
+                self.server.concurrency_gate.set()
+            self.server.overlapped = self.server.concurrency_gate.wait(timeout=3)
         status, decision = self.server.responses.popleft()
         response = {"error": decision} if status != 200 else {
             "choices": [{"finish_reason": "stop", "message": {"content": json.dumps(decision)}}],
@@ -90,7 +95,7 @@ class PipelineHTTPTests(unittest.TestCase):
             ),
             review=ReviewConfig(
                 backend="vllm", url=f"http://127.0.0.1:{self.review.server_port}/v1",
-                sample_frames=2, max_frame_size=96,
+                sample_frames=2, max_frame_size=96, workers=1,
             ),
             media=MediaConfig(width=96, height=64, fps=24),
             human_approval=False,
@@ -112,58 +117,112 @@ class PipelineHTTPTests(unittest.TestCase):
         ])
         return Production.create(package, self.config, self.run_dir)
 
-    def test_model_feedback_changes_next_comfy_request_only_for_rejected_shot(self):
-        replacement = "A distinct teal object centered in the landscape"
+    def test_rejected_shot_retries_with_original_prompt_and_a_new_seed(self):
         self.review.responses.extend([
             (200, {"passed": False, "summary": "Subject missing", "issues": [{
-                "shot_id": "shot-1", "category": "generation", "message": "0.125s: subject missing",
-                "suggested_prompt": replacement,
-            }]}), PASS, PASS, PASS,
+                "shot_id": "shot-1", "category": "generation", "message": "Subject missing",
+                "timestamps": [0.125],
+            }]}), PASS, PASS,
         ])
         state = self.create(count=2).run()
-        prompts = [item["prompt"]["conditioning"]["inputs"]["prompt"] for item in self.comfy.submissions]
-        self.assertEqual(prompts, ["Original shot 1", replacement, "Original shot 2"])
+        inputs = [item["prompt"]["conditioning"]["inputs"] for item in self.comfy.submissions]
+        self.assertEqual([x["prompt"] for x in inputs].count("Original shot 1"), 2)
+        self.assertEqual([x["prompt"] for x in inputs].count("Original shot 2"), 1)
+        self.assertEqual([x["seed"] for x in inputs if x["prompt"] == "Original shot 1"], [42, 43])
         self.assertEqual(state["shots"]["shot-1"]["attempts"], 2)
         self.assertEqual(state["shots"]["shot-2"]["attempts"], 1)
         self.assertEqual(state["status"], "complete")
         self.assertGreater(inspect_video(self.run_dir / state["final"]).duration, 0.9)
         self.assertFalse(self.review.responses)
 
-    def test_shot_review_outage_resumes_existing_clip_without_generation_budget(self):
-        self.config.max_attempts = 1
+    def test_review_outage_selects_existing_take_and_never_regenerates(self):
         self.review.responses.append((503, "Reviewer temporarily unavailable"))
-        first = self.create().run()
-        self.assertNotEqual(first["status"], "complete")
-        clip = self.run_dir / "shots" / "shot-1" / "attempt-001" / "clip.mp4"
-        before = clip.stat().st_mtime_ns
-        parameters = clip.parent / "parameters.json"
-        original_parameters = parameters.read_text()
-        self.review.responses.extend([PASS, PASS])
+        state = self.create().run()
+        self.assertEqual(state["status"], "complete")
+        shot = state["shots"]["shot-1"]
+        self.assertEqual(shot["selection"]["reason"], "review_unavailable")
+        self.assertEqual(shot["selection"]["candidates"], [1])
+        self.assertFalse(shot["takes"][0]["review"]["available"])
         resumed = Production(self.run_dir).run()
-        self.assertEqual(resumed["status"], "complete")
+        self.assertEqual(resumed["shots"], state["shots"])
         self.assertEqual(len(self.comfy.submissions), 1)
-        self.assertEqual(clip.stat().st_mtime_ns, before)
-        self.assertEqual(parameters.read_text(), original_parameters)
-        self.assertEqual(resumed["shots"]["shot-1"]["attempts"], 1)
-        self.assertEqual(resumed["shots"]["shot-1"]["budget_used"], 1)
-        self.assertFalse(self.review.responses)
+        self.assertEqual(len(self.review.requests), 1)
 
-    def test_film_review_outage_resumes_existing_draft(self):
-        self.config.max_film_reviews = 1
-        self.review.responses.extend([PASS, (503, "Reviewer temporarily unavailable")])
-        with self.assertRaises(httpx.HTTPStatusError):
-            self.create().run()
-        previous = json.loads((self.run_dir / "state.json").read_text())
-        draft = self.run_dir / previous["draft"]
-        before = draft.stat().st_mtime_ns
+    def test_three_rejections_select_random_take_and_preserve_selection_on_resume(self):
+        self.review.responses.extend([(200, {
+            "passed": False, "summary": "Wrong subject", "issues": [{
+                "shot_id": "shot-1", "category": "generation", "message": "Wrong subject",
+                "timestamps": [0.125],
+            }],
+        })] * 3)
+        self.config.human_approval = True
+        state = self.create().run()
+        self.assertEqual(state["status"], "awaiting_approval")
+        shot = state["shots"]["shot-1"]
+        self.assertEqual(shot["attempts"], 3)
+        self.assertEqual(shot["budget_used"], 3)
+        self.assertEqual(shot["selection"]["candidates"], [1, 2, 3])
+        self.assertEqual(shot["selection"]["reason"], "budget_exhausted")
+        self.assertIn(shot["selection"]["take_id"], [1, 2, 3])
+        self.assertEqual(len({take["prompt_hash"] for take in shot["takes"]}), 1)
+        resumed = Production(self.run_dir).run()
+        self.assertEqual(resumed["shots"]["shot-1"]["selection"], shot["selection"])
+        final = Production(self.run_dir).approve()
+        self.assertEqual(final["status"], "complete")
+        self.assertEqual(len(self.comfy.submissions), 3)
+        self.assertEqual(len(self.review.requests), 3)
+
+    def test_generation_timeout_resumes_saved_job_without_another_submission(self):
+        self.comfy.mode = "timeout"
+        self.config.comfyui.timeout = 0.15
+        first = self.create().run()
+        self.assertEqual(first["status"], "needs_attention")
+        self.assertEqual(first["shots"]["shot-1"]["attempts"], 1)
+        self.comfy.mode = "success"
         self.review.responses.append(PASS)
         resumed = Production(self.run_dir).run()
         self.assertEqual(resumed["status"], "complete")
         self.assertEqual(len(self.comfy.submissions), 1)
-        self.assertEqual(resumed["draft"], previous["draft"])
-        self.assertEqual(draft.stat().st_mtime_ns, before)
-        self.assertEqual(resumed["film_cycle"], 1)
-        self.assertFalse(self.review.responses)
+        self.assertEqual(resumed["shots"]["shot-1"]["budget_used"], 1)
+
+    def test_last_generation_failure_uses_previous_takes_without_an_extra_resume(self):
+        self.review.fail_third_generation = True
+        self.review.comfy = self.comfy
+        self.review.responses.extend([(200, {
+            "passed": False, "summary": "Wrong subject", "issues": [{
+                "shot_id": "shot-1", "category": "generation", "message": "Wrong subject",
+                "timestamps": [0.125],
+            }],
+        })] * 2)
+        state = self.create().run()
+        self.assertEqual(state["status"], "complete")
+        shot = state["shots"]["shot-1"]
+        self.assertEqual(shot["selection"]["reason"], "budget_exhausted")
+        self.assertEqual(shot["selection"]["candidates"], [1, 2])
+        self.assertEqual(shot["takes"][2]["status"], "failed")
+        self.assertEqual(len(self.comfy.submissions), 3)
+
+    def test_no_usable_take_marks_missing_but_other_shots_are_still_attempted(self):
+        self.comfy.mode = "no-video"
+        state = self.create(count=2).run()
+        self.assertEqual(state["status"], "needs_attention")
+        self.assertNotIn("final", state)
+        for shot in state["shots"].values():
+            self.assertEqual(shot["status"], "missing")
+            self.assertEqual(shot["attempts"], 3)
+        self.assertEqual(len(self.comfy.submissions), 6)
+        self.assertEqual(len(self.review.requests), 0)
+
+    def test_review_workers_overlap_while_generation_moves_to_the_next_shot(self):
+        self.config.review.workers = 2
+        self.review.concurrency_gate = threading.Event()
+        self.review.overlapped = False
+        self.review.responses.extend([PASS, PASS])
+        state = self.create(count=2).run()
+        self.assertEqual(state["status"], "complete")
+        self.assertTrue(self.review.overlapped)
+        self.assertEqual(len(self.review.requests), 2)
+        self.assertEqual(len(self.comfy.submissions), 2)
 
 
 if __name__ == "__main__":

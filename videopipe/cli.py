@@ -31,7 +31,7 @@ def main(argv=None) -> int:
         else:
             production = Production(args.run_dir)
             if args.command == "retry":
-                production.retry(args.shot, prompt=args.prompt, feedback=args.feedback)
+                production.retry(args.shot, feedback=args.feedback, new_round=args.new_round)
             state = production.run(auto_approve=args.auto_approve)
         _print(state)
         return 2 if state["status"] in {"failed", "needs_attention"} else 0
@@ -64,6 +64,6 @@ def _parser() -> argparse.ArgumentParser:
             command.add_argument("--auto-approve", action="store_true")
         if name == "retry":
             command.add_argument("--shot", action="append", required=True, help="Shot ID; repeat for multiple shots")
-            command.add_argument("--prompt")
-            command.add_argument("--feedback", default="")
+            command.add_argument("--feedback", default="", help="Record human feedback without changing generation inputs")
+            command.add_argument("--new-round", action="store_true", help="Explicitly request a new production round (up to three generations); retain all history")
     return parser

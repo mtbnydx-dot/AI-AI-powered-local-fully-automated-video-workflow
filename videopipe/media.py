@@ -65,8 +65,10 @@ def sample_frames(video: Path, output_dir: Path, count: int = 8, max_size: int =
     return frames
 
 
-def normalize_clip(source: Path, target: Path, *, duration: float, config: MediaConfig) -> Path:
+def normalize_clip(source: Path, target: Path, *, duration: float | None = None, config: MediaConfig) -> Path:
+    """Normalize a selected clip, retaining its measured duration unless an explicit trim is requested."""
     info = inspect_video(source)
+    duration = info.duration if duration is None else duration
     target.parent.mkdir(parents=True, exist_ok=True)
     inputs = ["-i", str(source)]
     if not info.has_audio:

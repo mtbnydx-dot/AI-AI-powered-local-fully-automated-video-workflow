@@ -15,7 +15,7 @@ import imageio_ffmpeg
 from PIL import Image
 
 from videopipe.backends.comfyui import ComfyGenerator, render_workflow
-from videopipe.models import ComfyConfig, Shot
+from videopipe.models import AssetBinding, ComfyConfig, Shot
 
 
 class ComfyHandler(BaseHTTPRequestHandler):
@@ -124,10 +124,9 @@ class ComfyIntegrationTests(unittest.TestCase):
         graph = self.server.submissions[0]["prompt"]
         self.assertEqual(graph["reference"]["inputs"]["image"], "uploaded-reference.png")
         self.assertEqual(graph["conditioning"]["inputs"]["length"], 124)
-        self.assertEqual(graph["noise"]["inputs"]["noise_seed"], 43)
+        self.assertEqual(graph["noise"]["inputs"]["noise_seed"], shot.seed)
         self.assertEqual(graph["schedule"]["inputs"]["steps"], 8)
-        self.assertIn("Avoid: logos", graph["conditioning"]["inputs"]["prompt"])
-        self.assertIn("Keep the sculpture orange", graph["conditioning"]["inputs"]["prompt"])
+        self.assertEqual(graph["conditioning"]["inputs"]["prompt"], shot.prompt)
         self.assertEqual(json.loads((self.output / "workflow.json").read_text()), graph)
         self.assertEqual(json.loads((self.output / "prompt.json").read_text())["prompt_id"], "job-1")
         self.assertEqual(self.server.downloads[0]["subfolder"], ["videopipe"])
@@ -139,6 +138,33 @@ class ComfyIntegrationTests(unittest.TestCase):
         self.assertEqual(self.server.uploads, [])
         self.assertNotIn("reference", self.server.submissions[0]["prompt"])
 
+    def test_explicit_first_frame_binding_controls_generation(self):
+        first = Path(self.directory.name) / "approved-first.png"
+        Image.new("RGB", (96, 64), "blue").save(first)
+        shot = self.shot(asset_bindings=[
+            AssetBinding(asset_id="character", path=self.reference, role="review_only"),
+            AssetBinding(asset_id="opening", path=first, role="first_frame"),
+        ])
+        ComfyGenerator(self.config).generate(shot, self.output, attempt=1)
+        self.assertEqual(self.server.uploads, [("approved-first.png", first.read_bytes())])
+        graph = self.server.submissions[0]["prompt"]
+        self.assertEqual(graph["reference"]["inputs"]["image"], "uploaded-approved-first.png")
+
+    def test_review_only_assets_do_not_upload_or_select_i2v(self):
+        shot = self.shot(asset_bindings=[
+            AssetBinding(asset_id="character", path=self.reference, role="review_only"),
+        ])
+        ComfyGenerator(self.config).generate(shot, self.output, attempt=1)
+        self.assertEqual(self.server.uploads, [])
+        self.assertNotIn("reference", self.server.submissions[0]["prompt"])
+
+    def test_legacy_references_upload_only_the_first_frame(self):
+        second = Path(self.directory.name) / "review-reference.png"
+        Image.new("RGB", (96, 64), "red").save(second)
+        shot = Shot(id="legacy", prompt="A slow camera push.", reference_images=[self.reference, second])
+        ComfyGenerator(self.config).generate(shot, self.output, attempt=1)
+        self.assertEqual(self.server.uploads, [("reference.png", self.reference.read_bytes())])
+
     def test_upscale_uploads_video_and_passes_requested_factor(self):
         result = ComfyGenerator(self.config).upscale(self.video, self.output, factor=4)
         self.assertEqual(result.read_bytes(), self.video.read_bytes())
@@ -148,6 +174,31 @@ class ComfyIntegrationTests(unittest.TestCase):
         self.assertEqual(graph["load"]["inputs"]["file"], "uploaded-source.mp4")
         self.assertEqual(graph["width"]["inputs"]["values.b"], 4)
         self.assertEqual(graph["video"]["inputs"]["audio"], ["components", 1])
+        self.assertEqual(graph["video"]["inputs"]["fps"], ["components", 2])
+
+    def test_prompt_whitespace_and_explicit_seed_are_preserved(self):
+        text = "  A quiet room.\n\n<d>[Chinese] 原文台词。</d>  \n"
+        shot = Shot(id="raw", prompt=text, seed=9345, negative_prompt="new forbidden content")
+        ComfyGenerator(self.config).generate(shot, self.output, attempt=3, feedback="Rewrite everything.")
+        graph = self.server.submissions[0]["prompt"]
+        self.assertEqual(graph["conditioning"]["inputs"]["prompt"], text)
+        self.assertEqual(graph["noise"]["inputs"]["noise_seed"], 9345)
+
+    def test_output_prefix_separates_runs_and_upscaled_clips(self):
+        root = Path(self.directory.name)
+        for run in ("episode-one", "episode-two"):
+            ComfyGenerator(self.config).generate(
+                self.shot(), root / run / "shots" / "shot-1" / "attempt-001", attempt=1)
+        prefixes = [request["prompt"]["save"]["inputs"]["filename_prefix"]
+                    for request in self.server.submissions]
+        self.assertNotEqual(prefixes[0], prefixes[1])
+        self.assertIn("episode-one/shots/shot-1/attempt-001", prefixes[0])
+        for shot in ("shot-1", "shot-2"):
+            ComfyGenerator(self.config).upscale(
+                self.video, root / "episode-one" / "shots" / shot / "attempt-001" / "upscale", factor=2)
+        upscaled = [request["prompt"]["save"]["inputs"]["filename_prefix"]
+                    for request in self.server.submissions[2:]]
+        self.assertNotEqual(upscaled[0], upscaled[1])
 
     def test_invalid_server_workflow_reports_error_body(self):
         self.server.mode = "reject"
@@ -174,6 +225,22 @@ class ComfyIntegrationTests(unittest.TestCase):
             ComfyGenerator(self.config).generate(self.shot(), self.output, attempt=1)
         self.assertEqual(len(self.server.submissions), 1)
         self.assertTrue((self.output / "prompt.json").is_file())
+        self.server.mode = "success"
+        self.config.timeout = 2
+        # Recovery uses the recorded service URL, even if the caller has another available instance.
+        result = ComfyGenerator(self.config, url="http://127.0.0.1:1").generate(
+            self.shot(), self.output, attempt=1)
+        self.assertEqual(result.read_bytes(), self.video.read_bytes())
+        self.assertEqual(len(self.server.submissions), 1)
+        self.assertEqual(len(self.server.uploads), 1)
+
+    def test_upscale_resume_does_not_submit_another_task(self):
+        generator = ComfyGenerator(self.config)
+        first = generator.upscale(self.video, self.output, factor=2)
+        second = generator.upscale(self.video, self.output, factor=2)
+        self.assertEqual(first, second)
+        self.assertEqual(len(self.server.submissions), 1)
+        self.assertEqual(len(self.server.uploads), 1)
 
     def test_template_keeps_types_and_fails_on_missing_parameter(self):
         self.assertEqual(render_workflow({"size": "{{width}}", "literal": "x={{width}}"}, {"width": 864}), {"size": 864, "literal": "x={{width}}"})

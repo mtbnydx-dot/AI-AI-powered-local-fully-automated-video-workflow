@@ -1,11 +1,13 @@
+import hashlib
 import json
+import random
 import shutil
-import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from collections import deque
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from pathlib import Path
 from queue import Queue
 
-from .inputs import load_config, load_package, validate_plan
+from .inputs import load_config, load_package, snapshot_inputs, validate_plan
 from .models import PipelineConfig, ScriptPackage, Shot
 from .records import Events, now, write_json
 
@@ -16,6 +18,8 @@ class Production:
         self.package = load_package(self.root / "package.json")
         self.config = load_config(self.root / "config.json")
         self.state = json.loads((self.root / "state.json").read_text(encoding="utf-8"))
+        if self.state["version"] != 2:
+            raise ValueError("This run uses the old workflow. Keep it with dev-jz; create a new run for this workflow.")
         self.events = Events(self.root)
         self.generators, self.reviewer = self._backends()
 
@@ -24,12 +28,12 @@ class Production:
         validate_plan(package, config)
         root = run_dir.resolve()
         root.mkdir(parents=True, exist_ok=False)
-        _snapshot(root, package, config)
+        snapshot_inputs(root, package, config)
         write_json(root / "state.json", {
-            "version": 1, "title": package.title, "created_at": now(),
-            "status": "pending", "film_reviews": 0, "film_cycle": 0,
-            "shots": {shot.id: {"status": "pending", "attempts": 0, "budget_used": 0}
-                      for shot in package.shots},
+            "version": 2, "title": package.title, "created_at": now(),
+            "status": "pending", "assembly_version": 0,
+            "shots": {shot.id: {"status": "pending", "attempts": 0, "budget_used": 0,
+                                "round": 0, "takes": []} for shot in package.shots},
         })
         return cls(root)
 
@@ -45,8 +49,6 @@ class Production:
             self.events.close()
 
     def _run(self, *, auto_approve: bool) -> dict:
-        from .media import assemble
-
         if self.state["status"] == "complete":
             return self.state
         if self.state.get("approval"):
@@ -57,48 +59,21 @@ class Production:
                 return self._deliver()
             return self.state
         self.state.update(status="running", error=None)
-        self.events.emit("run_started", generator=self.config.generator,
-                         reviewer=self.config.review.backend)
+        self.events.emit("run_started", generator=self.config.generator, reviewer=self.config.review.backend)
         self._save()
-        while self.state.get("film_pending") or self.state["film_cycle"] < self.config.max_film_reviews:
-            if not self._generate_pending():
-                self.state["status"] = "needs_attention"
-                self._save()
-                return self.state
-            if not self.state.get("film_pending"):
-                self.state["film_reviews"] += 1
-                folder = self.root / "film" / f"review-{self.state['film_reviews']:03d}"
-                folder.mkdir(parents=True, exist_ok=True)
-                with self.events.stage("assemble", review=self.state["film_reviews"]):
-                    draft = assemble([self.root / self.state["shots"][s.id]["clip"]
-                                      for s in self.package.shots], folder / "draft.mp4", self.config.media)
-                self.state.update(draft=str(draft.relative_to(self.root)), film_pending=True)
-                self._save()
-            index = self.state["film_reviews"]
-            draft = self.root / self.state["draft"]
-            folder = draft.parent
-            reviewed_shots = [shot.model_copy(update={"prompt": self.state["shots"][shot.id].get("prompt", shot.prompt)})
-                              for shot in self.package.shots]
-            with self.events.stage("film_review", review=index):
-                result = self.reviewer.review(draft, shots=reviewed_shots, scope="film", output_dir=folder)
-            self.state["film_cycle"] += 1
-            self.state["film_pending"] = False
-            write_json(folder / "result.json", result.model_dump(mode="json"))
-            self.events.emit("film_reviewed", review=index, passed=result.passed, summary=result.summary)
-            self.state["film_result"] = str((folder / "result.json").relative_to(self.root))
-            if result.passed:
-                if auto_approve or not self.config.human_approval:
-                    self.state["approval"] = {"time": now(), "method": "automatic"}
-                    return self._deliver()
-                self.state["status"] = "awaiting_approval"
-                self._save()
-                return self.state
-            if not self._apply_film_feedback(result):
-                self.state["status"] = "needs_attention"
-                self._save()
-                return self.state
+        self._produce_clips()
+        if not all(record["status"] == "ready" for record in self.state["shots"].values()):
+            self.state["status"] = "needs_attention"
             self._save()
-        self.state.update(status="needs_attention", error="Full-film review budget exhausted")
+            return self.state
+        if not self.state.get("draft"):
+            self._assemble()
+        if not self.state.get("audio"):
+            self._process_audio()
+        if auto_approve or not self.config.human_approval:
+            self.state["approval"] = {"time": now(), "method": "automatic"}
+            return self._deliver()
+        self.state["status"] = "awaiting_approval"
         self._save()
         return self.state
 
@@ -110,126 +85,259 @@ class Production:
         self._save()
         return self.run()
 
-    def retry(self, shot_ids: list[str], *, prompt: str | None = None, feedback: str = "") -> None:
+    def retry(self, shot_ids: list[str], *, feedback: str = "", new_round: bool = False) -> None:
         unknown = set(shot_ids) - self.state["shots"].keys()
         if unknown:
             raise ValueError(f"Unknown shot IDs: {', '.join(sorted(unknown))}")
+        exhausted = [key for key in shot_ids if self.state["shots"][key]["budget_used"] >= self.config.max_attempts]
+        if exhausted and not new_round:
+            raise ValueError("Generation budget exhausted for " + ", ".join(exhausted) +
+                             ". An explicitly requested new production round requires --new-round.")
         for shot_id in shot_ids:
             record = self.state["shots"][shot_id]
-            record.update(status="pending", budget_used=0, feedback=feedback, stage="generate")
-            if prompt is not None:
-                record["prompt"] = prompt
-        for key in ("approval", "final", "delivery", "error"):
+            if new_round:
+                record["round"] += 1
+                record["budget_used"] = 0
+            record.update(status="pending", feedback=feedback)
+            for key in ("selection", "clip", "duration", "error"):
+                record.pop(key, None)
+        for key in ("approval", "final", "delivery", "error", "draft", "manifest", "audio"):
             self.state.pop(key, None)
-        self.state.update(status="pending", film_cycle=0, film_pending=False)
-        self.events.emit("retry_requested", shots=shot_ids, prompt=prompt, feedback=feedback)
+        self.state["status"] = "pending"
+        self.events.emit("retry_requested", shots=shot_ids, feedback=feedback, new_round=new_round)
         self._save()
 
-    def _generate_pending(self) -> bool:
-        pending = [shot for shot in self.package.shots if self.state["shots"][shot.id]["status"] != "passed"]
-        with ThreadPoolExecutor(max_workers=self.config.workers) as pool:
-            futures = {pool.submit(self._produce_shot, shot, dict(self.state["shots"][shot.id])): shot
-                       for shot in pending}
-            for future in as_completed(futures):
-                shot = futures[future]
-                self.state["shots"][shot.id] = future.result()
-                self._save()
-        return all(record["status"] == "passed" for record in self.state["shots"].values())
-
-    def _produce_shot(self, shot: Shot, record: dict) -> dict:
-        from .media import normalize_clip
-
-        while record.get("stage") in {"normalize", "review"} or record["budget_used"] < self.config.max_attempts:
-            continuing = record.get("stage") in {"normalize", "review"}
-            if not continuing:
-                record["attempts"] += 1
-                record["budget_used"] += 1
-                record["stage"] = "generate"
-            attempt = record["attempts"]
-            folder = self.root / "shots" / shot.id / f"attempt-{attempt:03d}"
-            folder.mkdir(parents=True, exist_ok=True)
-            current = shot.model_copy(update={"prompt": record.get("prompt", shot.prompt)})
-            started = time.monotonic()
-            self.events.emit("shot_started", shot=shot.id, attempt=attempt)
-            write_json(folder / "shot.json", current.model_dump(mode="json"))
-            try:
-                if record["stage"] == "generate":
-                    generator = self.generators.get()
+    def _produce_clips(self) -> None:
+        generation_jobs, review_jobs = self._pending_jobs()
+        futures = {}
+        with ThreadPoolExecutor(max_workers=self.config.workers) as gpu_pool, \
+                ThreadPoolExecutor(max_workers=self.config.review.workers) as review_pool:
+            while generation_jobs or review_jobs or futures:
+                gpu_busy = sum(stage != "review" for stage, _, _ in futures.values())
+                while generation_jobs and gpu_busy < self.config.workers:
+                    stage, shot, take = generation_jobs.popleft()
+                    if stage == "generate" and take is None:
+                        take = self._new_take(shot)
+                    operation = self._generate if stage == "generate" else self._upscale
+                    futures[gpu_pool.submit(operation, shot, take)] = (stage, shot, take)
+                    gpu_busy += 1
+                review_busy = sum(stage == "review" for stage, _, _ in futures.values())
+                while review_jobs and review_busy < self.config.review.workers:
+                    shot, take = review_jobs.popleft()
+                    take["status"] = "reviewing"
+                    self._save()
+                    futures[review_pool.submit(self._review, shot, take)] = ("review", shot, take)
+                    review_busy += 1
+                if not futures:
+                    break
+                completed, _ = wait(futures, return_when=FIRST_COMPLETED)
+                for future in completed:
+                    stage, shot, take = futures.pop(future)
+                    record = self.state["shots"][shot.id]
                     try:
-                        with self.events.stage("generate", shot=shot.id, attempt=attempt):
-                            source = generator.generate(current, folder, attempt=attempt, feedback=record.get("feedback", ""))
-                    finally:
-                        self.generators.put(generator)
-                    record.update(source=str(source.relative_to(self.root)), stage="normalize")
-                if record["stage"] == "normalize":
-                    with self.events.stage("normalize", shot=shot.id, attempt=attempt):
-                        clip = normalize_clip(self.root / record["source"], folder / "clip.mp4",
-                                              duration=shot.duration, config=self.config.media)
-                    record.update(clip=str(clip.relative_to(self.root)), stage="review")
-                clip = self.root / record["clip"]
-                review_dir = folder / "review"
-                review_dir.mkdir(exist_ok=True)
-                with self.events.stage("shot_review", shot=shot.id, attempt=attempt):
-                    result = self.reviewer.review(clip, shots=[current], scope="shot", output_dir=review_dir)
-                write_json(review_dir / "result.json", result.model_dump(mode="json"))
-                record.update(clip=str(clip.relative_to(self.root)),
-                              review=str((review_dir / "result.json").relative_to(self.root)))
-                self.events.emit("shot_reviewed", shot=shot.id, attempt=attempt, passed=result.passed,
-                                 elapsed=round(time.monotonic() - started, 3), summary=result.summary)
-                if result.passed:
-                    record.update(status="passed", error=None, stage="complete")
-                    return record
-                record["feedback"] = result.summary + "\n" + "\n".join(i.message for i in result.issues)
-                for issue in result.issues:
-                    if issue.suggested_prompt:
-                        record["prompt"] = issue.suggested_prompt
-                record.update(status="rejected", error=result.summary, stage="generate")
-            except Exception as exc:
-                record.update(status="failed", error=str(exc))
-                self.events.emit("shot_failed", shot=shot.id, attempt=attempt,
-                                 elapsed=round(time.monotonic() - started, 3), error=str(exc))
-                write_json(folder / "error.json", {"error": str(exc)})
-                return record
-        record["status"] = "exhausted"
-        return record
+                        result = future.result()
+                    except Exception as exc:
+                        record.update(status="failed", error=str(exc))
+                        take["error"] = str(exc)
+                        # A ComfyUI timeout leaves its job running; resume the same take.
+                        take["status"] = "generating" if stage == "generate" and isinstance(exc, TimeoutError) else "failed"
+                        self.events.emit("job_failed", shot=shot.id, take=take["id"], stage=stage, error=str(exc))
+                        if stage == "generate" and not isinstance(exc, TimeoutError):
+                            if record["budget_used"] < self.config.max_attempts:
+                                generation_jobs.append(("generate", shot, None))
+                            else:
+                                self._select_random(shot, "budget_exhausted")
+                                if record.get("selection"):
+                                    generation_jobs.appendleft(("upscale", shot, self._selected_take(record)))
+                        self._save()
+                        continue
+                    if stage == "generate":
+                        take.update(status="generated", source=result)
+                        review_jobs.append((shot, take))
+                    elif stage == "review":
+                        take.update(status="reviewed", review=result.model_dump(mode="json"))
+                        self.events.emit("shot_reviewed", shot=shot.id, take=take["id"],
+                                         passed=result.passed, available=result.available, summary=result.summary)
+                        if result.available and result.passed:
+                            self._select(shot, take, "review_pass")
+                        elif not result.available:
+                            self._select_random(shot, "review_unavailable")
+                        elif record["budget_used"] >= self.config.max_attempts:
+                            self._select_random(shot, "budget_exhausted")
+                        else:
+                            record["status"] = "pending"
+                            generation_jobs.append(("generate", shot, None))
+                        if record.get("selection"):
+                            selected = self._selected_take(record)
+                            generation_jobs.appendleft(("upscale", shot, selected))
+                    else:
+                        record.update(status="ready", clip=result["clip"], duration=result["duration"], error=None)
+                    self._save()
 
-    def _apply_film_feedback(self, result) -> bool:
-        if not result.issues:
-            self.state["error"] = "Rejected film has no actionable issues"
-            return False
-        editing = next((issue for issue in result.issues if issue.category == "editing"), None)
-        if editing:
-            self.state["error"] = "Editing feedback requires an updated input: " + editing.message
-            return False
-        for issue in result.issues:
-            targets = [issue.shot_id] if issue.shot_id else [s.id for s in self.package.shots]
-            for shot_id in targets:
-                record = self.state["shots"][shot_id]
-                record.update(status="pending", feedback=issue.message, stage="generate")
-                if issue.suggested_prompt:
-                    record["prompt"] = issue.suggested_prompt
-        return True
+    def _pending_jobs(self):
+        generation_jobs, review_jobs = deque(), deque()
+        for shot in self.package.shots:
+            record = self.state["shots"][shot.id]
+            if record["status"] == "ready":
+                continue
+            if record.get("selection"):
+                generation_jobs.append(("upscale", shot, self._selected_take(record)))
+                continue
+            current = [take for take in record["takes"] if take["round"] == record["round"]]
+            last = current[-1] if current else None
+            if last and last["status"] == "generating":
+                generation_jobs.append(("generate", shot, last))
+            elif last and last["status"] in {"generated", "reviewing"}:
+                review_jobs.append((shot, last))
+            elif record["budget_used"] < self.config.max_attempts:
+                generation_jobs.append(("generate", shot, None))
+            else:
+                self._select_random(shot, "budget_exhausted")
+                if record.get("selection"):
+                    generation_jobs.append(("upscale", shot, self._selected_take(record)))
+        return generation_jobs, review_jobs
+
+    def _new_take(self, shot: Shot) -> dict:
+        record = self.state["shots"][shot.id]
+        record["attempts"] += 1
+        record["budget_used"] += 1
+        take = {"id": record["attempts"], "round": record["round"],
+                "seed": shot.seed + record["attempts"] - 1, "status": "generating",
+                "prompt_hash": hashlib.sha256(shot.prompt.encode("utf-8")).hexdigest()}
+        record["takes"].append(take)
+        record["status"] = "generating"
+        # Persist the generation allowance before starting GPU work.
+        self._save()
+        return take
+
+    def _generate(self, shot: Shot, take: dict) -> str:
+        from .media import inspect_video
+
+        folder = self._take_folder(shot, take)
+        folder.mkdir(parents=True, exist_ok=True)
+        current = shot.model_copy(update={"seed": take["seed"]})
+        write_json(folder / "shot.json", current.model_dump(mode="json"))
+        generator = self.generators.get()
+        try:
+            with self.events.stage("generate", shot=shot.id, take=take["id"], seed=take["seed"]):
+                source = generator.generate(current, folder, attempt=take["id"])
+                inspect_video(source)
+        finally:
+            self.generators.put(generator)
+        return str(source.relative_to(self.root))
+
+    def _review(self, shot: Shot, take: dict):
+        folder = self._take_folder(shot, take) / "review"
+        with self.events.stage("shot_review", shot=shot.id, take=take["id"]):
+            result = self.reviewer.review(self.root / take["source"], shots=[shot], scope="shot", output_dir=folder)
+        write_json(folder / "result.json", result.model_dump(mode="json"))
+        return result
+
+    def _select_random(self, shot: Shot, reason: str) -> None:
+        record = self.state["shots"][shot.id]
+        candidates = [take for take in record["takes"] if take["round"] == record["round"] and take.get("source")]
+        if not candidates:
+            record.update(status="missing", error="No usable generated take")
+            self._save()
+            return
+        selection_seed = random.getrandbits(64)
+        take = random.Random(selection_seed).choice(candidates)
+        self._select(shot, take, reason, candidates=[candidate["id"] for candidate in candidates],
+                     selection_seed=selection_seed)
+
+    def _select(self, shot: Shot, take: dict, reason: str, **details) -> None:
+        record = self.state["shots"][shot.id]
+        flags = [] if reason == "review_pass" else [reason, "selected_take_random"]
+        record.update(status="selected", selection={"take_id": take["id"], "reason": reason,
+                                                    "flags": flags, **details})
+        write_json(self.root / "shots" / shot.id / "selection.json", record["selection"])
+        self.events.emit("take_selected", shot=shot.id, **record["selection"])
+        self._save()
+
+    def _selected_take(self, record: dict) -> dict:
+        return next(take for take in record["takes"] if take["id"] == record["selection"]["take_id"])
+
+    def _take_folder(self, shot: Shot, take: dict) -> Path:
+        return self.root / "shots" / shot.id / f"attempt-{take['id']:03d}"
+
+    def _output_config(self):
+        factor = self.config.media.upscale_factor if self.config.media.upscale != "none" else 1
+        return self.config.media.model_copy(update={"upscale": "none", "width": self.config.media.width * factor,
+                                                    "height": self.config.media.height * factor})
+
+    def _upscale(self, shot: Shot, take: dict) -> dict:
+        from .media import inspect_video, normalize_clip
+
+        folder = self._take_folder(shot, take)
+        source = self.root / take["source"]
+        with self.events.stage("upscale", shot=shot.id, take=take["id"]):
+            if self.config.media.upscale == "comfyui":
+                generator = self.generators.get()
+                try:
+                    source = generator.upscale(source, folder / "upscale", factor=self.config.media.upscale_factor)
+                finally:
+                    self.generators.put(generator)
+            clip = normalize_clip(source, folder / "clip.mp4", config=self._output_config())
+        info = inspect_video(clip)
+        return {"clip": str(clip.relative_to(self.root)), "duration": info.duration}
+
+    def _assemble(self) -> None:
+        from .media import assemble
+
+        self.state["assembly_version"] += 1
+        folder = self.root / "film" / f"version-{self.state['assembly_version']:03d}"
+        clips, manifest, offset = [], [], 0.0
+        for shot in self.package.shots:
+            record = self.state["shots"][shot.id]
+            clips.append(self.root / record["clip"])
+            manifest.append({"shot_id": shot.id, "clip": record["clip"], "start": offset,
+                             "duration": record["duration"], **record["selection"]})
+            offset += record["duration"]
+        with self.events.stage("assemble", version=self.state["assembly_version"]):
+            draft = assemble(clips, folder / "draft.mp4", self._output_config())
+        write_json(folder / "manifest.json", manifest)
+        self.state.update(draft=str(draft.relative_to(self.root)), manifest=str((folder / "manifest.json").relative_to(self.root)))
+        self._save()
+
+    def _process_audio(self) -> None:
+        from .backends.asr import transcribe
+        from .subtitles import create_subtitles
+
+        folder = (self.root / self.state["draft"]).parent / "audio"
+        with self.events.stage("asr"):
+            transcript = transcribe(self.root / self.state["draft"], self.config.asr, folder)
+        consistency = {"status": "disabled"}
+        if transcript["status"] == "complete" and self.config.review.backend == "vllm":
+            consistency = self.reviewer.compare_transcript(
+                self.package.script.read_text(encoding="utf-8"), transcript, folder / "comparison")
+        write_json(folder / "consistency.json", consistency)
+        timed_shots = [shot.model_copy(update={"duration": self.state["shots"][shot.id]["duration"]})
+                       for shot in self.package.shots]
+        subtitles = create_subtitles(timed_shots, transcript, folder / "subtitles")
+        self.state["audio"] = {"transcript": transcript, "consistency": consistency, "subtitles": subtitles}
+        self.events.emit("audio_reported", asr_status=transcript["status"], consistency=consistency,
+                         subtitle_status=subtitles["status"])
+        self._save()
 
     def _deliver(self) -> dict:
         from .media import finalize, inspect_video
 
         self.state["status"] = "delivering"
         self._save()
-        source = self.root / self.state["draft"]
-        config = self.config.media
-        folder = self.root / "delivery" / f"version-{self.state['film_reviews']:03d}"
-        folder.mkdir(parents=True, exist_ok=True)
-        if config.upscale == "comfyui":
-            from .backends.comfyui import ComfyGenerator
-            source = ComfyGenerator(self.config.comfyui).upscale(source, folder / "upscale", factor=config.upscale_factor)
-            config = config.model_copy(update={"upscale": "none", "width": config.width * config.upscale_factor,
-                                               "height": config.height * config.upscale_factor})
-        with self.events.stage("finalize", review=self.state["film_reviews"]):
-            final = finalize(source, folder / "final.mp4", config)
+        folder = self.root / "delivery" / f"version-{self.state['assembly_version']:03d}"
+        with self.events.stage("finalize", version=self.state["assembly_version"]):
+            final = finalize(self.root / self.state["draft"], folder / "final.mp4", self._output_config())
+        subtitles = self.state["audio"]["subtitles"]
+        if subtitles.get("path"):
+            shutil.copy2(subtitles["path"], folder / "episode.srt")
         info = inspect_video(final)
-        self.state.update(status="complete", final=str(final.relative_to(self.root)),
-                          completed_at=now(), delivery={"width": info.width, "height": info.height,
-                          "duration": info.duration, "fps": info.fps, "has_audio": info.has_audio})
+        self.state.update(status="complete", final=str(final.relative_to(self.root)), completed_at=now(),
+                          delivery={"width": info.width, "height": info.height, "duration": info.duration,
+                                    "fps": info.fps, "has_audio": info.has_audio})
+        report = {"video": self.state["final"], "delivery": self.state["delivery"],
+                  "shots": self.state["shots"], "audio": self.state["audio"],
+                  "manifest": self.state["manifest"], "approval": self.state["approval"]}
+        write_json(folder / "production_report.json", report)
         self.events.emit("run_completed", final=self.state["final"], **self.state["delivery"])
         self._save()
         return self.state
@@ -253,27 +361,3 @@ class Production:
     def _save(self) -> None:
         self.state["updated_at"] = now()
         write_json(self.root / "state.json", self.state)
-
-
-def _snapshot(root: Path, package: ScriptPackage, config: PipelineConfig) -> None:
-    package = package.model_copy(deep=True)
-    config = config.model_copy(deep=True)
-    inputs = root / "inputs"
-    inputs.mkdir()
-    shutil.copy2(package.script, inputs / "script.md")
-    package.script = Path("inputs/script.md")
-    for shot in package.shots:
-        refs = []
-        for index, ref in enumerate(shot.reference_images):
-            dest = Path("inputs") / f"{shot.id}-{index}{ref.suffix}"
-            shutil.copy2(ref, root / dest)
-            refs.append(dest)
-        shot.reference_images = refs
-    for name in ("workflow", "upscale_workflow"):
-        source = getattr(config.comfyui, name)
-        if source is not None:
-            dest = Path("inputs") / f"{name}.json"
-            shutil.copy2(source, root / dest)
-            setattr(config.comfyui, name, dest)
-    write_json(root / "package.json", package.model_dump(mode="json"))
-    write_json(root / "config.json", config.model_dump(mode="json"))

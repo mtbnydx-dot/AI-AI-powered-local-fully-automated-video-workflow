@@ -3,7 +3,7 @@ review:
   backend: cpu
   sample_frames: 4
   max_frame_size: 320
-  reject_once: [shot-02, film]
+  reject_once: [shot-02]
 media:
   width: 320
   height: 192
@@ -12,5 +12,4 @@ media:
   upscale_factor: 2
 workers: 2
 max_attempts: 3
-max_film_reviews: 3
 human_approval: false

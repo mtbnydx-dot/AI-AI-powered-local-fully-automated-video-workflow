@@ -31,7 +31,11 @@ class ComfyGenerator:
 
     def generate(self, shot: Shot, output_dir: Path, *, attempt: int, feedback: str = "") -> Path:
         output_dir.mkdir(parents=True, exist_ok=True)
-        workflow = self.config.workflow or WORKFLOWS / ("h3_i2v.json" if shot.reference_images else "h3_t2v.json")
+        if (output_dir / "prompt.json").is_file():
+            return self._resume(output_dir)
+        first_frames = ([asset.path for asset in shot.asset_bindings if asset.role == "first_frame"]
+                        if shot.asset_bindings else shot.reference_images[:1])
+        workflow = self.config.workflow or WORKFLOWS / ("h3_i2v.json" if first_frames else "h3_t2v.json")
         values = {
             **DEFAULT_PARAMETERS,
             "prompt": shot.prompt,
@@ -40,21 +44,17 @@ class ComfyGenerator:
             "height": shot.height,
             "fps": shot.fps,
             "frames": self._frames(shot.duration, shot.fps),
-            "seed": shot.seed + attempt - 1,
+            "seed": shot.seed,
             "duration": shot.duration,
             "attempt": attempt,
-            "feedback": feedback,
             **self.config.parameters,
             **shot.parameters,
         }
-        values["h3_prompt"] = "\n\n".join(part for part in (
-            values["prompt"],
-            f"Avoid: {values['negative_prompt']}" if values["negative_prompt"] else "",
-            f"Revision instructions: {feedback}" if feedback else "",
-        ) if part)
-        values["filename_prefix"] = f"videopipe/{shot.id}/attempt-{attempt}"
+        # The input module owns the approved text. Review feedback never changes generation input.
+        values["h3_prompt"] = shot.prompt
+        values["filename_prefix"] = output_prefix(output_dir)
         with httpx.Client(base_url=self.url, timeout=self.config.timeout, trust_env=False) as client:
-            references = [self._upload(client, image) for image in shot.reference_images]
+            references = [self._upload(client, image) for image in first_frames]
             values["reference_images"] = references
             if references:
                 values["reference_image"] = references[0]
@@ -63,6 +63,8 @@ class ComfyGenerator:
 
     def upscale(self, video: Path, output_dir: Path, *, factor: int) -> Path:
         output_dir.mkdir(parents=True, exist_ok=True)
+        if (output_dir / "prompt.json").is_file():
+            return self._resume(output_dir)
         workflow = self.config.upscale_workflow or WORKFLOWS / "upscale.json"
         with httpx.Client(base_url=self.url, timeout=self.config.timeout, trust_env=False) as client:
             values = {
@@ -70,7 +72,7 @@ class ComfyGenerator:
                 **self.config.parameters,
                 "reference_video": self._upload(client, video),
                 "factor": factor,
-                "filename_prefix": "videopipe/upscale",
+                "filename_prefix": output_prefix(output_dir),
             }
             return self._execute(client, workflow, values, output_dir)
 
@@ -99,6 +101,15 @@ class ComfyGenerator:
             raise RuntimeError(f"ComfyUI rejected workflow nodes: {submitted['node_errors']}")
         prompt_id = submitted["prompt_id"]
         save_json(output_dir / "prompt.json", {"prompt_id": prompt_id, "url": self.url})
+        return self._download_result(client, prompt_id, output_dir)
+
+    def _resume(self, output_dir: Path) -> Path:
+        """Continue the recorded server task; a timeout is not a request to generate another take."""
+        submitted = json.loads((output_dir / "prompt.json").read_text(encoding="utf-8"))
+        with httpx.Client(base_url=submitted["url"], timeout=self.config.timeout, trust_env=False) as client:
+            return self._download_result(client, submitted["prompt_id"], output_dir)
+
+    def _download_result(self, client: httpx.Client, prompt_id: str, output_dir: Path) -> Path:
         history = self._wait(client, prompt_id, output_dir)
         result = video_output(history)
         target = output_dir / ("video" + Path(result["filename"]).suffix)
@@ -126,6 +137,12 @@ class ComfyGenerator:
                     return history
             time.sleep(self.config.poll_interval)
         raise TimeoutError(f"ComfyUI task {prompt_id} exceeded {self.config.timeout}s; server task is left running. See {output_dir / 'prompt.json'}")
+
+
+def output_prefix(output_dir: Path) -> str:
+    """Keep run / shot / take context in ComfyUI filenames without exposing an absolute path."""
+    context = [re.sub(r"[^A-Za-z0-9_.-]", "_", part) for part in output_dir.resolve().parts[-5:]]
+    return "/".join(["videopipe", *context, "video"])
 
 
 def render_workflow(template: Any, values: dict[str, Any]) -> Any:

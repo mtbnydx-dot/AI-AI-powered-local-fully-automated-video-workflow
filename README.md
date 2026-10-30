@@ -1,6 +1,6 @@
 # 离线 AI 视频生产
 
-从脚本包出发，经 ComfyUI 生成镜头、vLLM/Qwen 评审、局部返工、剪辑、人工审核与超分，输出视频和完整运行记录。只实现视频生产模块；原应用代码保留在 Git 历史中。
+从脚本包出发，经 ComfyUI 生成镜头、Qwen 画面审核、逐片超分、拼接、可选 ASR/字幕和人工终审，输出视频和生产记录。每镜头每轮最多生成 3 次；审核不可用或预算耗尽时随机选已有可用 take，标注问题后继续。控制中心不修改提示词。
 
 ## CPU 上运行
 
@@ -10,12 +10,13 @@
 python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements.lock
 .venv/bin/python -m pip install --no-deps -e .
+.venv/bin/python scripts/create_example.py
 .venv/bin/videopipe validate examples/product/package.json --config configs/cpu.yaml
 .venv/bin/videopipe run examples/product/package.json --config configs/cpu.yaml --output runs/cup
 .venv/bin/videopipe status runs/cup
 ```
 
-样例包含三镜头脚本、正负 Prompt、验收条件和原创参考图。CPU 配置实际编码、拼接和放大视频，并刻意安排一次镜头拒绝与一次整片拒绝，验证局部返工。输出目录需为新目录。
+样例包含三镜头脚本、正负 Prompt、验收条件和原创参考图。CPU 配置实际编码、逐片放大和拼接视频，并安排一次镜头拒绝验证局部返工。输出目录需为新目录。
 
 **CPU 后端是参考图运动预览和技术检查，不运行 AI，也不判断语义画质。** `lanczos` 是普通插值放大；GPU 配置的 `comfyui` 使用真实超分模型。
 
@@ -24,13 +25,14 @@ python3 -m venv .venv
 ```bash
 videopipe resume runs/cup
 videopipe retry runs/cup --shot shot-02 --feedback '保持杯把形状' --auto-approve
-videopipe retry runs/cup --shot shot-02 --prompt 'A stationary orange ceramic mug, slow camera push-in.'
+# 只有明确要求追加制作轮时才使用，累计生成次数仍保留：
+videopipe retry runs/cup --shot shot-02 --new-round
 videopipe approve runs/cup
 ```
 
-`resume` 复用已通过镜头；Review 服务失败时复用已生成片段。`retry` 重做指定镜头并重新评审整片，保留旧尝试和交付版本。生产配置在 `awaiting_approval` 停下，`approve` 后超分交付；无人值守测试可显式使用 `--auto-approve`。CPU 配置默认自动通过人工环节。
+`resume` 恢复已有任务与选片结果，不清零预算；`retry` 在剩余预算内重做指定镜头，反馈仅记录，不进入提示词。`--new-round` 明确建立人工追加制作轮，保留旧尝试和交付版本。生产配置在成片 `awaiting_approval` 停下，`approve` 后最终编码交付；无人值守测试可显式使用 `--auto-approve`。CPU 配置默认自动通过人工环节。
 
-预算耗尽、服务失败或无法自动执行的剪辑建议会保留结果和原因。已完成、待审核返回退出码 0，需要处理返回 2，输入或运行错误返回 1。不要同时用多个 CLI 进程操作同一运行目录。
+预算耗尽或画面审核不可用时，随机选择已完成且可读取的 take，保留问题标记并继续超分合成；没有可用视频才报告镜头缺失。ASR 差异或不可用不阻断。已完成、待审核返回退出码 0，需要处理返回 2，输入或运行错误返回 1。不要同时用多个 CLI 进程操作同一运行目录。旧版运行目录仍用 `dev-jz` 恢复，本分支从新的运行目录开始。
 
 ## GPU 测试与离线部署
 
@@ -38,7 +40,7 @@ videopipe approve runs/cup
 | --- | --- |
 | `configs/cpu.yaml` | 无模型全流程与返工验证 |
 | `configs/pro6000.yaml` | 单卡 ComfyUI/H3，CPU 代替 Review，不要求同时装下两种模型 |
-| `configs/b200.yaml` | 7 个单 GPU ComfyUI 实例与 1 个 vLLM/Qwen 实例，GPU 划分可改 |
+| `configs/b200.yaml` | GPU 0–6 生成/超分；整张 GPU 7 运行 Qwen NVFP4 多并发与可选 ASR 两个进程，配置可改 |
 
 本项目不捆绑 ComfyUI、vLLM 或模型。使用独立推理环境、数据盘模型和本地服务地址。准备与启动见[离线部署](docs/deployment.md)，API workflow 与模型见[ComfyUI 接入](docs/comfyui.md)，评审协议与限制见[Review](docs/review.md)。GPU 配置是待实机验证的起点，不代表已证明显存、吞吐和画质。
 
@@ -73,4 +75,4 @@ examples/product/     # 自包含样例脚本包
 tests/                # 实现与流程测试
 ```
 
-[设计记录](docs/README.md) · [输入与运行记录](docs/usage.md) · [初版验收](docs/acceptance.md)
+[设计记录](docs/README.md) · [输入与运行记录](docs/usage.md) · [验收](docs/acceptance.md) · [交接标准](docs/handoff.md) · [agent 工作指南](docs/agent-guide.md)

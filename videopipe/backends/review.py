@@ -6,6 +6,7 @@ from typing import Literal
 
 import httpx
 from PIL import Image, ImageOps
+from pydantic import BaseModel, ConfigDict, Field
 
 from videopipe.media import inspect_video, sample_frames
 from videopipe.models import ReviewConfig, ReviewIssue, ReviewResult, Shot
@@ -25,29 +26,32 @@ class VLLMReviewer:
         output_dir: Path,
     ) -> ReviewResult:
         output_dir.mkdir(parents=True, exist_ok=True)
-        info = inspect_video(video)
-        frames = sample_frames(
-            video, output_dir / "frames", self.config.sample_frames, self.config.max_frame_size
-        )
-        request = self._build_request(frames, info.duration, shots, scope)
-        _write_json(output_dir / "request.json", request)
+        if scope != "shot":
+            return _save_result(output_dir, ReviewResult(
+                passed=False, available=False, summary="Whole-film review is a human decision; automatic visual review is shot-only."
+            ))
         try:
-            with httpx.Client(timeout=self.config.timeout) as client:
-                response = client.post(
-                    self.config.url.rstrip("/") + "/chat/completions", json=request
-                )
-            (output_dir / "response.txt").write_text(response.text, encoding="utf-8")
-            response.raise_for_status()
-            result = _parse_response(response.json(), shots, scope)
-        except (httpx.HTTPError, ValueError) as error:
+            info = inspect_video(video)
+            frames = sample_frames(
+                video, output_dir / "frames", self.config.sample_frames, self.config.max_frame_size
+            )
+            request = self._build_request(frames, info.duration, shots)
+            result = _parse_response(self._chat(request, output_dir), shots)
+        except (httpx.HTTPError, ValueError, RuntimeError, OSError) as error:
             (output_dir / "error.txt").write_text(str(error), encoding="utf-8")
-            raise
-        _write_json(output_dir / "result.json", result.model_dump(mode="json"))
-        return result
+            result = ReviewResult(passed=False, available=False, summary=f"Visual review unavailable: {error}")
+        return _save_result(output_dir, result)
 
-    def _build_request(
-        self, frames: list[Path], duration: float, shots: list[Shot], scope: str
-    ) -> dict:
+    def _chat(self, request: dict, output_dir: Path) -> dict:
+        """Each call owns its HTTP client and output directory; workers may call concurrently."""
+        _write_json(output_dir / "request.json", request)
+        with httpx.Client(timeout=self.config.timeout, trust_env=False) as client:
+            response = client.post(self.config.url.rstrip("/") + "/chat/completions", json=request)
+        (output_dir / "response.txt").write_text(response.text, encoding="utf-8")
+        response.raise_for_status()
+        return response.json()
+
+    def _build_request(self, frames: list[Path], duration: float, shots: list[Shot]) -> dict:
         shot_specs = [
             {
                 "id": shot.id,
@@ -61,15 +65,14 @@ class VLLMReviewer:
         content = [{
             "type": "text",
             "text": (
-                f"Review scope: {scope}. Actual video duration: {duration:.3f} seconds.\n"
-                f"Script:\n{self.script}\n"
-                f"Shots in playback order:\n{json.dumps(shot_specs, ensure_ascii=False)}\n"
-                "Reference images follow, then ordered sampled video frames. "
-                "Frame timestamps refer to the actual submitted video. "
-                "Check requested content, identity, visible defects and continuity. "
-                "For film scope also check shot order and editing. "
-                "Sparse frames cannot establish audio quality or prove smooth motion; "
-                "do not claim to have assessed them."
+                f"Review scope: shot. Actual video duration: {duration:.3f} seconds.\n"
+                f"Script (visual context only):\n{self.script}\n"
+                f"Original shot brief:\n{json.dumps(shot_specs, ensure_ascii=False)}\n"
+                "Reference images follow, then ordered sampled video frames with timestamps. "
+                "Evaluate only clearly visible identity mismatches, broken anatomy, major content/composition "
+                "departures, obvious black frames, or changes visible between the supplied frames. "
+                "Sparse frames cannot establish audio, dialogue accuracy, lip-sync, continuous motion or "
+                "flicker between samples. Do not infer those qualities."
             ),
         }]
         for shot in shots:
@@ -84,26 +87,63 @@ class VLLMReviewer:
             "model": self.config.model,
             "temperature": 0,
             "max_tokens": self.config.max_tokens,
+            "chat_template_kwargs": {"enable_thinking": False},
             "messages": [
                 {
                     "role": "system",
                     "content": (
-                        "You review generated video against its production brief. "
-                        "Return only the requested JSON. passed=true requires issues=[]. "
-                        "passed=false requires at least one concrete actionable issue. "
-                        "Use only supplied shot IDs. A generation issue must identify a shot; "
-                        "an editing issue may use shot_id=null for a whole-film problem. "
-                        "For a single-shot review all issues must identify that shot. "
-                        "Include the observed timestamp and defect in message. "
-                        "suggested_prompt may contain a complete replacement prompt when "
-                        "regeneration is needed; otherwise use null. "
-                        "Report only observed problems, and state assessment limits in summary."
+                        "You perform a permissive, visual-only quality check of one generated shot. "
+                        "Return only the requested JSON. Reject only a clear, substantial visual problem "
+                        "supported by the supplied images. Put minor defects, stylistic preferences, ambiguous "
+                        "observations and sampling limitations in warnings, with passed=true and issues=[]. "
+                        "Every blocking issue must identify a supplied shot ID and cite observed frame "
+                        "timestamps in seconds in timestamps, with the visible evidence in message. "
+                        "Never infer audio, spoken words, pronunciation, music, sound quality or lip-sync "
+                        "from images. Those are outside this review. "
+                        "You have no authority to edit the prompt, script, dialogue, references or production "
+                        "parameters. Do not propose replacement prompts or regeneration instructions. "
+                        "Use category=generation; whole-film editing and final approval belong to the human reviewer."
                     ),
                 },
                 {"role": "user", "content": content},
             ],
             "structured_outputs": {"json": ReviewResult.model_json_schema()},
         }
+
+    def compare_transcript(self, script_text: str, transcript: dict, output_dir: Path) -> dict:
+        """A text-only advisory record. This result never approves or rejects generated media."""
+        output_dir.mkdir(parents=True, exist_ok=True)
+        if transcript.get("status") != "complete":
+            result = {"available": False, "matches": None, "summary": "Transcript unavailable; script comparison skipped.",
+                      "differences": []}
+            _write_json(output_dir / "result.json", result)
+            return result
+        request = {
+            "model": self.config.model, "temperature": 0, "max_tokens": self.config.max_tokens,
+            "chat_template_kwargs": {"enable_thinking": False},
+            "messages": [
+                {"role": "system", "content": (
+                    "Compare the supplied script with the ASR transcript. Report missing, added or substantially "
+                    "different spoken lines. Do not expect scene descriptions or camera instructions to be spoken. "
+                    "ASR may be wrong: describe uncertainty. Return only the requested JSON. This is advisory only: "
+                    "do not rewrite script, prompts, subtitles or dialogue, and do not request regeneration."
+                )},
+                {"role": "user", "content": json.dumps({"script": script_text,
+                    "segments": transcript.get("segments", [])}, ensure_ascii=False)},
+            ],
+            "structured_outputs": {"json": _TranscriptComparison.model_json_schema()},
+        }
+        try:
+            decision = _TranscriptComparison.model_validate_json(
+                _completion_content(self._chat(request, output_dir)), strict=True
+            )
+            result = {"available": True, **decision.model_dump()}
+        except (httpx.HTTPError, ValueError, RuntimeError, OSError) as error:
+            (output_dir / "error.txt").write_text(str(error), encoding="utf-8")
+            result = {"available": False, "matches": None, "summary": f"Script comparison unavailable: {error}",
+                      "differences": []}
+        _write_json(output_dir / "result.json", result)
+        return result
 
 
 class CPUReviewer:
@@ -120,41 +160,44 @@ class CPUReviewer:
         output_dir: Path,
     ) -> ReviewResult:
         output_dir.mkdir(parents=True, exist_ok=True)
+        if scope != "shot":
+            return _save_result(output_dir, ReviewResult(
+                passed=False, available=False, summary="Whole-film review is a human decision; CPU review is shot-only."
+            ))
         info = inspect_video(video)
         frames = sample_frames(
             video, output_dir / "frames", self.config.sample_frames, self.config.max_frame_size
         )
         _write_json(output_dir / "request.json", {
-            "backend": "cpu",
-            "scope": scope,
-            "video": str(video),
-            "duration_seconds": info.duration,
-            "sampled_frames": len(frames),
+            "backend": "cpu", "scope": scope, "video": str(video),
+            "duration_seconds": info.duration, "sampled_frames": len(frames),
             "shot_ids": [shot.id for shot in shots],
         })
-        # The attempt directory survives process restarts, so a resumed run is not rejected again.
-        first_attempt = (
-            output_dir.parent.name == "attempt-001" if scope == "shot"
-            else output_dir.name == "review-001"
-        )
-        reject_id = shots[0].id if scope == "shot" else "film"
-        injected = first_attempt and reject_id in self.config.reject_once
+        # Persisted attempt directories make this explicit test exercise reproducible on resume.
+        injected = output_dir.parent.name == "attempt-001" and shots[0].id in self.config.reject_once
         issues = [ReviewIssue(
-            shot_id=shots[0].id,
-            category="generation",
-            message="Explicit CPU reject_once exercise; regenerate this shot once.",
+            shot_id=shots[0].id, category="generation", timestamps=[0.0],
+            message="Explicit CPU reject_once test exercise; this is not a semantic quality judgement.",
         )] if injected else []
-        result = ReviewResult(
+        return _save_result(output_dir, ReviewResult(
             passed=not injected,
-            summary=(
-                "CPU technical check only: video metadata and sampled frame decoding succeeded. "
-                "Semantic quality and motion were not assessed."
-                + (" Explicit rejection enabled to exercise the repair path." if injected else "")
-            ),
-            issues=issues,
-        )
-        _write_json(output_dir / "result.json", result.model_dump(mode="json"))
+            summary="CPU technical check only: video metadata and sampled frame decoding succeeded.",
+            warnings=["Semantic quality and motion were not assessed."], issues=issues,
+        ))
+
+    def compare_transcript(self, script_text: str, transcript: dict, output_dir: Path) -> dict:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        result = {"available": False, "matches": None, "summary": "No language model configured for script comparison.",
+                  "differences": []}
+        _write_json(output_dir / "result.json", result)
         return result
+
+
+class _TranscriptComparison(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    matches: bool
+    summary: str
+    differences: list[str] = Field(default_factory=list)
 
 
 def _image_part(path: Path, max_size: int) -> dict:
@@ -167,26 +210,41 @@ def _image_part(path: Path, max_size: int) -> dict:
     return {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{encoded}"}}
 
 
-def _parse_response(payload: dict, shots: list[Shot], scope: str) -> ReviewResult:
+def _completion_content(payload: dict) -> str:
     try:
         choice = payload["choices"][0]
         if choice["finish_reason"] != "stop":
             raise ValueError(f"Review did not finish normally: {choice['finish_reason']}")
-        result = ReviewResult.model_validate_json(choice["message"]["content"], strict=True)
+        return choice["message"]["content"]
     except (KeyError, IndexError, TypeError) as error:
-        raise ValueError("Invalid vLLM review response: missing completion content") from error
+        raise ValueError("Invalid vLLM response: missing completion content") from error
+
+
+def _parse_response(payload: dict, shots: list[Shot]) -> ReviewResult:
+    # Validate the service contract once at this boundary. Unlocated observations are warnings.
+    result = ReviewResult.model_validate_json(_completion_content(payload), strict=True)
+    if not result.available:
+        return result.model_copy(update={"passed": False})
     if result.passed and result.issues:
         raise ValueError("Invalid review result: passed=true with unresolved issues")
-    if not result.passed and not result.issues:
-        raise ValueError("Invalid review result: passed=false requires actionable issues")
     shot_ids = {shot.id for shot in shots}
+    issues, warnings = [], list(result.warnings)
     for issue in result.issues:
-        if issue.shot_id is not None and issue.shot_id not in shot_ids:
+        if issue.shot_id not in shot_ids:
             raise ValueError(f"Invalid review result: unknown shot_id {issue.shot_id!r}")
-        if issue.shot_id is None and (scope == "shot" or issue.category == "generation"):
-            raise ValueError("Invalid review result: generation/single-shot issue needs a shot_id")
         if not issue.message.strip():
-            raise ValueError("Invalid review result: an issue needs an actionable message")
+            raise ValueError("Invalid review result: an issue needs observed evidence")
+        if issue.category != "generation" or not issue.timestamps:
+            warnings.append(issue.message)
+        else:
+            issues.append(issue)
+    if not result.passed and not issues and not warnings:
+        warnings.append(result.summary or "Reviewer could not identify a substantial visible problem.")
+    return result.model_copy(update={"passed": not issues, "issues": issues, "warnings": warnings})
+
+
+def _save_result(output_dir: Path, result: ReviewResult) -> ReviewResult:
+    _write_json(output_dir / "result.json", result.model_dump(mode="json"))
     return result
 
 

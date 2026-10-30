@@ -8,7 +8,7 @@ from PIL import Image, ImageDraw
 
 from videopipe.backends.cpu import CPUGenerator
 from videopipe.media import assemble, finalize, inspect_video, normalize_clip, run_ffmpeg, sample_frames
-from videopipe.models import MediaConfig, Shot
+from videopipe.models import AssetBinding, MediaConfig, Shot
 
 
 class MediaTests(unittest.TestCase):
@@ -37,12 +37,51 @@ class MediaTests(unittest.TestCase):
                 self.assertEqual(image.size, (80, 48))
         self.assertNotEqual(frames[0].read_bytes(), frames[-1].read_bytes())
 
+    def test_cpu_review_only_asset_is_not_a_generation_reference(self):
+        shot = self.shot.model_copy(update={"asset_bindings": [
+            AssetBinding(asset_id="review-reference", path=self.reference, role="review_only")
+        ]})
+        video = CPUGenerator().generate(shot, self.directory / "review-only", attempt=1)
+        frame = sample_frames(video, self.directory / "review-only-frame", count=1)[0]
+        with Image.open(frame) as image:
+            actual = image.convert("RGB").getpixel((0, 0))
+        self.assertTrue(all(abs(a - b) <= 5 for a, b in zip(actual, (48, 57, 68))), actual)
+
     def test_normalize_pads_duration_and_adds_silent_audio(self):
         normalized = normalize_clip(self.clip, self.directory / "normalized.mp4", duration=1.5, config=self.config)
         info = inspect_video(normalized)
         self.assertEqual((info.width, info.height, info.fps, info.has_audio), (192, 128, 12, True))
         self.assertAlmostEqual(info.duration, 1.5, delta=0.05)
         run_ffmpeg(["-loglevel", "error", "-i", str(normalized), "-f", "null", "-"])
+
+    def test_normalize_preserves_native_audio_tail_when_duration_omitted(self):
+        source = self.directory / "native-audio.mp4"
+        run_ffmpeg([
+            "-loglevel", "error", "-i", str(self.clip), "-f", "lavfi", "-i",
+            "sine=frequency=440:sample_rate=48000:duration=1.5",
+            "-c:v", "copy", "-c:a", "aac", str(source),
+        ])
+        measured = inspect_video(source)
+        # The original planned shot is one second; its native output audio extends beyond that.
+        normalized = normalize_clip(source, self.directory / "retained.mp4", config=self.config)
+        info = inspect_video(normalized)
+        self.assertAlmostEqual(info.duration, measured.duration, delta=0.09)
+        self.assertGreater(info.duration, self.shot.duration + 0.4)
+        self.assertTrue(info.has_audio)
+        audio = self.directory / "retained.wav"
+        run_ffmpeg(["-loglevel", "error", "-i", str(normalized), "-vn", "-ac", "1",
+                    "-c:a", "pcm_s16le", str(audio)])
+        with wave.open(str(audio)) as stream:
+            samples = array.array("h", stream.readframes(stream.getnframes()))
+            rate = stream.getframerate()
+        self.assertGreater(max(abs(sample) for sample in samples[int(rate * 1.2):int(rate * 1.4)]), 500)
+
+    def test_duration_none_adds_silent_track_without_extending_the_source(self):
+        normalized = normalize_clip(self.clip, self.directory / "silent-retained.mp4",
+                                    duration=None, config=self.config)
+        info = inspect_video(normalized)
+        self.assertAlmostEqual(info.duration, inspect_video(self.clip).duration, delta=0.05)
+        self.assertTrue(info.has_audio)
 
     def test_mixed_audio_assembly_and_lanczos_delivery(self):
         audio_clip = self.directory / "with-audio.mp4"

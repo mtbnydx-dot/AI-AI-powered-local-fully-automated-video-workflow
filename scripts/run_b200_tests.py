@@ -8,6 +8,7 @@ import argparse
 import csv
 import hashlib
 import json
+import math
 import os
 import platform
 import shutil
@@ -123,10 +124,30 @@ def collect(root):
         run = root / "runs" / name
         target = delivery / f"tide-{duration}s.mp4"
         state = read_json(run / "state.json", {})
+        shots = state.get("shots", {})
         row = {"status": state.get("status", "not_run"), "run_dir": str(run),
-               "expected_seconds": duration, "error": state.get("error"),
-               "retries": sum(max(0, s.get("attempts", 0) - 1) for s in state.get("shots", {}).values()),
+               "planned_seconds": duration, "expected_seconds": duration, "error": state.get("error"),
+               "retries": sum(max(0, s.get("attempts", 0) - 1) for s in shots.values()),
+               "visual_pass_count": sum(s.get("selection", {}).get("reason") == "review_pass" for s in shots.values()),
+               "fallback_shots": [shot_id for shot_id, shot in shots.items()
+                                  if shot.get("selection", {}).get("reason") in ("review_unavailable", "budget_exhausted")],
                "stage_seconds_sum": {}, "verified": False}
+        if state.get("manifest"):
+            row["expected_seconds"] = None
+            try:
+                manifest_path = (run / state["manifest"]).resolve()
+                if not manifest_path.is_relative_to(run.resolve()):
+                    raise ValueError("Assembly manifest is outside its run directory")
+                manifest = read_json(manifest_path)
+                if not isinstance(manifest, list) or not manifest:
+                    raise ValueError("Assembly manifest must contain measured clip durations")
+                durations = [clip.get("duration") if isinstance(clip, dict) else None for clip in manifest]
+                if any(isinstance(value, bool) or not isinstance(value, (int, float))
+                       or not math.isfinite(value) or value <= 0 for value in durations):
+                    raise ValueError("Assembly manifest contains an invalid clip duration")
+                row["expected_seconds"] = math.fsum(durations)
+            except (OSError, ValueError) as error:
+                row["verification_error"] = str(error)
         events = run / "events.jsonl"
         if events.is_file():
             for line in events.read_text().splitlines():
@@ -134,13 +155,13 @@ def collect(root):
                 if event["event"] == "stage_finished":
                     stage = event["stage"]
                     row["stage_seconds_sum"][stage] = round(row["stage_seconds_sum"].get(stage, 0) + event["elapsed"], 3)
-        if row["status"] == "complete" and state.get("final"):
+        if row["status"] == "complete" and state.get("final") and not row.get("verification_error"):
             try:
                 video = (run / state["final"]).resolve()
                 if not video.is_relative_to(run.resolve()):
                     raise ValueError("Final video is outside its run directory")
                 info = inspect_video(video)
-                if (info.width, info.height) != (576, 1024) or abs(info.fps - 24) > 0.01 or abs(info.duration - duration) > 0.15:
+                if (info.width, info.height) != (576, 1024) or abs(info.fps - 24) > 0.01 or abs(info.duration - row["expected_seconds"]) > 0.15:
                     raise ValueError(f"Unexpected delivery metadata: {info}")
                 run_ffmpeg(["-v", "error", "-xerror", "-i", str(video), "-f", "null", "-"])
                 shutil.copy2(video, target)
@@ -172,17 +193,20 @@ def collect(root):
               "sampled_host_memory_peak_kib": host_peak,
               "notes": ["Resource samples cover the whole node at approximately 5-second intervals; peaks may be missed.",
                         "Stage totals sum concurrent work and are not wall-clock duration.",
+                        "Verified means technical media validation, not visual review approval; fallback shots may still be delivered.",
                         "Audio presence is recorded; sparse visual Review does not assess audio quality or prove smooth motion."]}
     write_json(delivery / "summary.json", report)
     lines = ["# B200 两轮测试结果", "", f"状态：{report['status']}", ""]
     for name, row in cases.items():
-        lines.append(f"- {name} / {row['expected_seconds']}秒：{row['status']}，交付验证={row['verified']}，返工次数={row['retries']}")
+        lines.append(f"- {name} / 计划{row['planned_seconds']}秒，验收时长{row['expected_seconds']}秒：{row['status']}，技术媒体验证={row['verified']}，返工次数={row['retries']}")
+        lines.append(f"  画面审核通过镜头数：{row['visual_pass_count']}；降级选片镜头：{', '.join(row['fallback_shots']) or '无'}")
         elapsed = sum(command["elapsed_seconds"] for command in commands if command["case"] == name)
         lines.append(f"  测试入口命令累计耗时：{elapsed:.1f}秒；阶段累计用时：{json.dumps(row['stage_seconds_sum'], ensure_ascii=False)}")
         if row.get("verification_error") or row.get("error"):
             lines.append(f"  错误：{row.get('verification_error') or row.get('error')}")
     lines += ["", f"采样GPU显存峰值（MiB）：{json.dumps(peaks)}；主机内存峰值（KiB）：{host_peak}。",
               "命令耗时不含入口外执行的手动retry；阶段耗时包含其工作，详细原始记录见日志。",
+              "技术媒体验证通过不等于画面审核通过；降级选片仍可进入交付，需结合 selection 与最终人工验收。",
               "详细耗时、资源采样与文件校验值见 summary.json；音频内容、口型和流畅性留待最终人工验收。"]
     (delivery / "summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     with tarfile.open(delivery / "logs.tar.gz", "w:gz") as archive:
