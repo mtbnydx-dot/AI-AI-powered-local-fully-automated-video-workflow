@@ -12,6 +12,7 @@
 
 | 文档 | 内容 |
 | --- | --- |
+| [生产输入指南](production-input-guide.md) | 实际生产的输入包、完整填写示例、配置与操作步骤 |
 | [模块架构](architecture.md) | 模块职责、ComfyUI 与 vLLM 的集成边界 |
 | [生产工作流](workflow.md) | 脚本包、视频生成、Review、人工审核与交付 |
 | [开发与部署约定](engineering.md) | 外部依赖、离线部署、测试环境、运行记录与开发约束 |
