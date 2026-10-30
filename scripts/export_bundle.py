@@ -43,7 +43,7 @@ def _copy_source(source: Path, target: Path) -> None:
         path = source / name
         if path.is_file():
             shutil.copy2(path, target / name)
-    for name in ("videopipe", "configs", "deploy", "docs", "examples", "scripts", "tests"):
+    for name in ("videopipe", "prompt", "configs", "deploy", "docs", "examples", "scripts", "tests"):
         path = source / name
         if path.is_dir():
             shutil.copytree(path, target / name, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))

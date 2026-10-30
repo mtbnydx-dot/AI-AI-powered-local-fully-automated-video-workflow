@@ -1,0 +1,1 @@
+Video frame at {timestamp:.3f}s:

@@ -1,0 +1,11 @@
+Review scope: shot. Actual video duration: {duration:.3f} seconds.
+
+<script_context>
+{script}
+</script_context>
+
+<shot_brief_json>
+{shot_specs}
+</shot_brief_json>
+
+Reference images follow, then ordered sampled video frames with timestamps relative to this clip. Review the visible result against this shot's brief and acceptance criteria using the system rubric. Reference images are expectations; only video frames are evidence of generated output.

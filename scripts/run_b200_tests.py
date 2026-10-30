@@ -161,7 +161,10 @@ def collect(root):
                 if not video.is_relative_to(run.resolve()):
                     raise ValueError("Final video is outside its run directory")
                 info = inspect_video(video)
-                if (info.width, info.height) != (576, 1024) or abs(info.fps - 24) > 0.01 or abs(info.duration - row["expected_seconds"]) > 0.15:
+                media = read_json(run / "config.json", {}).get("media", {})
+                factor = media.get("upscale_factor", 2) if media.get("upscale", "none") != "none" else 1
+                expected_size = (media.get("width", 576) * factor, media.get("height", 1024) * factor)
+                if (info.width, info.height) != expected_size or abs(info.fps - media.get("fps", 24)) > 0.01 or abs(info.duration - row["expected_seconds"]) > 0.15:
                     raise ValueError(f"Unexpected delivery metadata: {info}")
                 run_ffmpeg(["-v", "error", "-xerror", "-i", str(video), "-f", "null", "-"])
                 shutil.copy2(video, target)

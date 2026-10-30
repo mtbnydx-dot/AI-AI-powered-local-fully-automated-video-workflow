@@ -17,7 +17,7 @@ DEFAULT_PARAMETERS = {
     "text_encoder": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
     "video_vae": "minimax_h3_video_vae_int8_convrot.safetensors",
     "audio_vae": "minimax_h3_audio_vae_fp32.safetensors",
-    "steps": 20,
+    "steps": 10,
     "sampler": "res_multistep",
     "scheduler": "simple",
     "upscale_model": "RealESRGAN_x2plus.pth",

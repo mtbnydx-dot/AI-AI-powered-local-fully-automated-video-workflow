@@ -10,21 +10,21 @@ comfyui:
     - http://127.0.0.1:8194
   timeout: 3600
   parameters:
-    steps: 20
-# GPU0-6: generation and per-shot upscale; GPU7: Qwen review + optional ASR.
+    steps: 10
+# GPU0-6: generation and per-shot upscale; GPU7: Qwen review + ASR.
 # Qwen weights: nvidia/Qwen3.8-Flash-Next-NVFP4; start with deploy/start-vllm.sh.
 # Its CPU embedding offload, 0.80 VRAM, TP1 and 16K context need a real B200 smoke test.
 review:
   backend: vllm
   url: http://127.0.0.1:8000/v1
   model: qwen-review
-  workers: 2  # Keep aligned with REVIEW_MAX_SEQS; tune only after checking GPU7 memory.
+  workers: 6  # Keep aligned with REVIEW_MAX_SEQS.
   sample_frames: 8
   max_frame_size: 640
-# Optional local faster-whisper model directory, or a fully pre-cached large-v3 model.
-# ASR runs once after concatenation on GPU7; unavailable ASR never blocks human review.
+# Local faster-whisper model directory, or a fully pre-cached large-v3 model.
+# ASR runs once after concatenation on GPU7; unavailable ASR never blocks delivery.
 asr:
-  enabled: false
+  enabled: true
   model: large-v3
   gpu: 7
   compute_type: int8_float16
@@ -38,4 +38,4 @@ media:
   upscale_factor: 2
 workers: 7
 max_attempts: 3
-human_approval: true
+human_approval: false

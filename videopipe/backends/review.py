@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from videopipe.media import inspect_video, sample_frames
 from videopipe.models import ReviewConfig, ReviewIssue, ReviewResult, Shot
+from videopipe.prompts import load_prompt
 
 
 class VLLMReviewer:
@@ -64,24 +65,20 @@ class VLLMReviewer:
         ]
         content = [{
             "type": "text",
-            "text": (
-                f"Review scope: shot. Actual video duration: {duration:.3f} seconds.\n"
-                f"Script (visual context only):\n{self.script}\n"
-                f"Original shot brief:\n{json.dumps(shot_specs, ensure_ascii=False)}\n"
-                "Reference images follow, then ordered sampled video frames with timestamps. "
-                "Evaluate only clearly visible identity mismatches, broken anatomy, major content/composition "
-                "departures, obvious black frames, or changes visible between the supplied frames. "
-                "Sparse frames cannot establish audio, dialogue accuracy, lip-sync, continuous motion or "
-                "flicker between samples. Do not infer those qualities."
+            "text": load_prompt(
+                "review_user.txt", duration=duration, script=self.script,
+                shot_specs=json.dumps(shot_specs, ensure_ascii=False),
             ),
         }]
         for shot in shots:
             for index, reference in enumerate(shot.reference_images, start=1):
-                content.append({"type": "text", "text": f"Reference {index} for shot {shot.id}:"})
+                content.append({"type": "text", "text": load_prompt(
+                    "review_reference.txt", index=index, shot_id=shot.id,
+                )})
                 content.append(_image_part(reference, self.config.max_frame_size))
         for index, frame in enumerate(frames):
             timestamp = duration * (index + 0.5) / len(frames)
-            content.append({"type": "text", "text": f"Video frame at {timestamp:.3f}s:"})
+            content.append({"type": "text", "text": load_prompt("review_frame.txt", timestamp=timestamp)})
             content.append(_image_part(frame, self.config.max_frame_size))
         return {
             "model": self.config.model,
@@ -91,19 +88,7 @@ class VLLMReviewer:
             "messages": [
                 {
                     "role": "system",
-                    "content": (
-                        "You perform a permissive, visual-only quality check of one generated shot. "
-                        "Return only the requested JSON. Reject only a clear, substantial visual problem "
-                        "supported by the supplied images. Put minor defects, stylistic preferences, ambiguous "
-                        "observations and sampling limitations in warnings, with passed=true and issues=[]. "
-                        "Every blocking issue must identify a supplied shot ID and cite observed frame "
-                        "timestamps in seconds in timestamps, with the visible evidence in message. "
-                        "Never infer audio, spoken words, pronunciation, music, sound quality or lip-sync "
-                        "from images. Those are outside this review. "
-                        "You have no authority to edit the prompt, script, dialogue, references or production "
-                        "parameters. Do not propose replacement prompts or regeneration instructions. "
-                        "Use category=generation; whole-film editing and final approval belong to the human reviewer."
-                    ),
+                    "content": load_prompt("review_system.txt"),
                 },
                 {"role": "user", "content": content},
             ],
@@ -122,12 +107,7 @@ class VLLMReviewer:
             "model": self.config.model, "temperature": 0, "max_tokens": self.config.max_tokens,
             "chat_template_kwargs": {"enable_thinking": False},
             "messages": [
-                {"role": "system", "content": (
-                    "Compare the supplied script with the ASR transcript. Report missing, added or substantially "
-                    "different spoken lines. Do not expect scene descriptions or camera instructions to be spoken. "
-                    "ASR may be wrong: describe uncertainty. Return only the requested JSON. This is advisory only: "
-                    "do not rewrite script, prompts, subtitles or dialogue, and do not request regeneration."
-                )},
+                {"role": "system", "content": load_prompt("transcript_compare_system.txt")},
                 {"role": "user", "content": json.dumps({"script": script_text,
                     "segments": transcript.get("segments", [])}, ensure_ascii=False)},
             ],

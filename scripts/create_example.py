@@ -5,6 +5,8 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter
 
+from videopipe.prompts import load_prompt
+
 
 def paint_reference(path: Path, framing: str) -> None:
     image = Image.new("RGB", (1440, 800), "#ddcdb8")
@@ -42,42 +44,18 @@ def main() -> None:
     references.mkdir(parents=True, exist_ok=True)
     for name in ("wide", "medium", "detail"):
         paint_reference(references / f"{name}.png", name)
-    descriptions = [
-        ("wide", "A wide product establishing shot of one orange ceramic mug on a warm wooden table, "
-         "handle on the right, navy linen on the left, soft afternoon sunlight from the upper left. "
-         "Slow smooth camera push-in. The mug stays stationary. Warm minimalist commercial style."),
-        ("medium", "Medium close-up of the same orange ceramic mug, handle on the right, on the same "
-         "wooden table under warm upper-left sunlight. Slow smooth camera push-in emphasizing the "
-         "curved ceramic body and glaze. Preserve the reference shape and orange color."),
-        ("detail", "Close detail of the same orange ceramic mug's elliptical rim and right-side handle. "
-         "Warm upper-left sunlight glides across the glazed ceramic surface as the camera slowly pushes in. "
-         "The mug remains rigid and stationary. Clean premium product finish."),
-    ]
     shots = []
-    for index, (name, prompt) in enumerate(descriptions, 1):
+    for index, name in enumerate(("wide", "medium", "detail"), 1):
         shots.append({
-            "id": f"shot-{index:02d}", "prompt": prompt,
-            "negative_prompt": "warped mug, duplicate handles, extra objects, text, watermark, flicker, "
-                               "camera shake, changing color, distorted geometry",
+            "id": f"shot-{index:02d}", "prompt": load_prompt(f"product/{name}.txt"),
+            "negative_prompt": load_prompt("product/negative.txt"),
             "reference_images": [f"references/{name}.png"], "duration": 2,
             "width": 864, "height": 480, "fps": 24, "seed": 4100 + index,
-            "acceptance": ["One orange mug with a single right-side handle remains consistent with the reference.",
-                           "Warm light and the wooden tabletop remain consistent across shots.",
-                           "Camera motion is gentle; no severe flicker, geometry deformation or unintended text."],
+            "acceptance": load_prompt("product/acceptance.txt").splitlines(),
         })
     package = {"title": "Amber Cup — A Quiet Afternoon", "script": "script.md", "shots": shots}
     (directory / "package.json").write_text(json.dumps(package, ensure_ascii=False, indent=2) + "\n")
-    (directory / "script.md").write_text(
-        "# Amber Cup — A Quiet Afternoon\n\n"
-        "A six-second, three-shot product film introducing a single orange ceramic mug. "
-        "The mug has a rounded body and one handle on its right. "
-        "Warm upper-left sunlight, a wooden table and navy linen establish a consistent setting.\n\n"
-        "1. **0–2 s, wide:** Establish the mug and quiet tabletop with a gentle push-in.\n"
-        "2. **2–4 s, medium:** Move closer to show the orange glaze and curved body.\n"
-        "3. **4–6 s, detail:** Finish on the elliptical rim and right-side handle.\n\n"
-        "Use straight cuts. No dialogue, music, subtitles or on-screen text are required. "
-        "Review product identity, shape, color, lighting and temporal stability.\n"
-    )
+    (directory / "script.md").write_text(load_prompt("product/script.txt") + "\n", encoding="utf-8")
     (directory / "README.md").write_text(
         "# Product test package\n\n"
         "Three 2-second shots at 864×480 / 24 fps, with complete prompts, negative prompts, "
@@ -88,7 +66,7 @@ def main() -> None:
         "scripts/create_example.py, with no downloaded photographs, fonts or third-party artwork. "
         "The images and script package are dedicated to the public domain under "
         "[CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/).\n\n"
-        "Rebuild with `python scripts/create_example.py`; edit that source rather than generated files.\n"
+        "Rebuild with `python scripts/create_example.py`; edit prompt/product/*.txt for prompt text.\n"
     )
     print(directory)
 

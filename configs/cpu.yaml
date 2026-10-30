@@ -1,4 +1,6 @@
 generator: cpu
+asr:
+  enabled: false
 review:
   backend: cpu
   sample_frames: 4

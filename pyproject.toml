@@ -16,7 +16,8 @@ asr = ["faster-whisper>=1.1,<2"]
 videopipe = "videopipe.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["videopipe*"]
+include = ["videopipe*", "prompt"]
 
 [tool.setuptools.package-data]
 videopipe = ["workflows/*.json", "workflows/*.md"]
+prompt = ["*.txt", "product/*.txt"]

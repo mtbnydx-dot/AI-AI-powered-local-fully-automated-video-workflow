@@ -1,0 +1,1 @@
+Reference {index} for shot {shot_id} (expected appearance, not generated output):

@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, model_validator
 
 
 class InputModel(BaseModel):
@@ -37,10 +37,12 @@ class ScriptPackage(InputModel):
 
 
 class ComfyConfig(InputModel):
-    urls: list[str] = Field(default_factory=lambda: ["http://127.0.0.1:8188"], min_length=1)
+    urls: list[str] = Field(
+        default_factory=lambda: [f"http://127.0.0.1:{port}" for port in range(8188, 8195)], min_length=1
+    )
     workflow: Path | None = None
     upscale_workflow: Path | None = None
-    parameters: dict[str, Any] = Field(default_factory=dict)
+    parameters: dict[str, Any] = Field(default_factory=lambda: {"steps": 10})
     frame_multiple: int = Field(default=17, gt=0)
     frame_offset: int = Field(default=5, ge=0)
     poll_interval: float = Field(default=2, gt=0)
@@ -48,7 +50,7 @@ class ComfyConfig(InputModel):
 
 
 class ReviewConfig(InputModel):
-    backend: Literal["cpu", "vllm"] = "cpu"
+    backend: Literal["cpu", "vllm"] = "vllm"
     url: str = "http://127.0.0.1:8000/v1"
     model: str = "qwen-review"
     sample_frames: int = Field(default=8, ge=2)
@@ -56,11 +58,11 @@ class ReviewConfig(InputModel):
     max_tokens: int = Field(default=2048, gt=0)
     timeout: float = Field(default=300, gt=0)
     reject_once: list[str] = Field(default_factory=list)
-    workers: int = Field(default=2, ge=1)
+    workers: int = Field(default=6, ge=1)
 
 
 class ASRConfig(InputModel):
-    enabled: bool = False
+    enabled: bool = True
     model: str = "large-v3"
     gpu: int = Field(default=7, ge=0)
     compute_type: str = "int8_float16"
@@ -72,13 +74,13 @@ class MediaConfig(InputModel):
     width: int = Field(default=864, gt=0, multiple_of=2)
     height: int = Field(default=480, gt=0, multiple_of=2)
     fps: int = Field(default=24, gt=0)
-    upscale: Literal["none", "lanczos", "comfyui"] = "none"
+    upscale: Literal["none", "lanczos", "comfyui"] = "comfyui"
     upscale_factor: int = Field(default=2, ge=1, le=4)
     crf: int = Field(default=18, ge=0, le=51)
 
 
 class PipelineConfig(InputModel):
-    generator: Literal["cpu", "comfyui"] = "cpu"
+    generator: Literal["cpu", "comfyui"] = "comfyui"
     comfyui: ComfyConfig = Field(default_factory=ComfyConfig)
     review: ReviewConfig = Field(default_factory=ReviewConfig)
     asr: ASRConfig = Field(default_factory=ASRConfig)
@@ -86,8 +88,25 @@ class PipelineConfig(InputModel):
     max_attempts: int = Field(default=3, ge=1, le=3)
     # Read legacy configuration without restoring the removed film-review loop.
     max_film_reviews: int | None = Field(default=None, ge=1, exclude=True)
-    workers: int = Field(default=1, ge=1)
-    human_approval: bool = True
+    workers: int = Field(default=7, ge=1)
+    human_approval: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def cpu_defaults(cls, values: Any) -> Any:
+        if not isinstance(values, dict) or values.get("generator") != "cpu":
+            return values
+        values = dict(values)
+        values.setdefault("workers", 1)
+        for section, defaults in (
+            ("review", {"backend": "cpu"}),
+            ("asr", {"enabled": False}),
+            ("media", {"upscale": "none"}),
+        ):
+            supplied = values.get(section, {})
+            if isinstance(supplied, dict):
+                values[section] = {**defaults, **supplied}
+        return values
 
 
 class ReviewIssue(InputModel):
@@ -103,4 +122,3 @@ class ReviewResult(InputModel):
     summary: str
     issues: list[ReviewIssue] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
-
