@@ -1,0 +1,55 @@
+from __future__ import annotations
+
+import argparse
+import asyncio
+import json
+from pathlib import Path
+
+from .llm import DEFAULT_ENDPOINT, DEFAULT_MODEL, GLMClient, load_key
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Generate text-only short-drama packages using GLM")
+    parser.add_argument("--source", type=Path, required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--env", type=Path, default=Path(".env"))
+    parser.add_argument("--model", default=DEFAULT_MODEL)
+    parser.add_argument("--endpoint", default=DEFAULT_ENDPOINT)
+    parser.add_argument("--episodes", type=int, help="Default: 8 for long-form, otherwise 12")
+    parser.add_argument("--long-form", action="store_true", help="Write an hour-long season in scene-sized calls")
+    parser.add_argument("--delivery", type=Path, help="Long-form handoff directory, e.g. examples/pearl_shirt_long")
+    parser.add_argument("--stop-after", choices=("season", "plans", "drafts", "review"), help="Save the selected long-form stage and exit")
+    parser.add_argument("--concurrency", type=int, default=4)
+    parser.add_argument("--repair-rounds", type=int, default=2)
+    parser.add_argument("--reasoning-effort", choices=("low", "high", "max"), default="high")
+    parser.add_argument("--review-reasoning-effort", choices=("low", "high", "max"), default="low")
+    parser.add_argument("--production-config", type=Path)
+    parser.add_argument("--notes", type=Path, help="Optional source-specific editorial notes")
+    args = parser.parse_args()
+    if args.episodes is None:
+        args.episodes = 8 if args.long_form else 12
+    if args.episodes < 1 or args.concurrency < 1 or args.repair_rounds < 0:
+        parser.error("episodes/concurrency must be positive and repair-rounds nonnegative")
+
+    async def execute() -> None:
+        client = GLMClient(load_key(args.env), args.output / "api", args.endpoint,
+                           args.model, args.concurrency, args.reasoning_effort)
+        try:
+            if args.long_form:
+                from .long_pipeline import run_long
+                result = await run_long(args.source, args.output, client,
+                                        episode_count=args.episodes, repair_rounds=args.repair_rounds,
+                                        production_config=args.production_config, notes_path=args.notes,
+                                        delivery=args.delivery, stop_after=args.stop_after,
+                                        review_reasoning_effort=args.review_reasoning_effort)
+            else:
+                from .pipeline import run
+                result = await run(args.source, args.output, client,
+                                   episode_count=args.episodes, repair_rounds=args.repair_rounds,
+                                   production_config=args.production_config, notes_path=args.notes,
+                                   review_reasoning_effort=args.review_reasoning_effort)
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+        finally:
+            await client.close()
+
+    asyncio.run(execute())

@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from videopipe.backends.asr import transcribe, _transcribe_local
+from videopipe.backends.asr import transcribe, _transcribe_local, normalize_transcript
 
 
 class ASRTests(unittest.TestCase):
@@ -96,6 +96,19 @@ class ASRTests(unittest.TestCase):
         self.assertEqual(calls["transcribe"]["beam_size"], 1)
         self.assertTrue(calls["transcribe"]["word_timestamps"])
         self.assertEqual(result["segments"][0]["words"][0]["start"], 0.2)
+
+    def test_zero_duration_word_uses_sentence_timing_without_losing_other_speech(self):
+        result = normalize_transcript({"status": "complete", "segments": [
+            {"start": 77.78, "end": 82.11, "text": "二叔还有一件事", "words": [
+                {"start": 81.33, "end": 81.33, "word": "叔"}]},
+            {"start": 83, "end": 84, "text": "请说。"},
+            {"start": 86, "end": 85, "text": "invalid sentence"},
+        ]})
+        self.assertEqual(result["status"], "complete")
+        self.assertEqual(len(result["segments"]), 2)
+        self.assertEqual(result["segments"][0]["text"], "二叔还有一件事")
+        self.assertNotIn("words", result["segments"][0])
+        self.assertEqual(len(result["timing_warnings"]), 2)
 
 
 if __name__ == "__main__":

@@ -51,7 +51,7 @@ H3 使用 24fps，尺寸为 32 的倍数，帧数向上对齐到 `17k+5`；5 秒
 | `audio_vae` | `models/vae/` | `minimax_h3_audio_vae_fp32.safetensors` |
 | `upscale_model` | `models/upscale_models/` | `RealESRGAN_x2plus.pth` |
 
-H3 默认 `steps=20`、`sampler=res_multistep`、`scheduler=simple`，不要求额外 LoRA。H3 权重来自 [Comfy-Org/MiniMax-H3](https://huggingface.co/Comfy-Org/MiniMax-H3)；超分权重来自 [Real-ESRGAN v0.2.1](https://github.com/xinntao/Real-ESRGAN/releases/tag/v0.2.1)。超分先按模型倍率推理，再调整到配置要求的尺寸。
+H3 默认 `steps=10`、`sampler=res_multistep`、`scheduler=simple`，不要求额外 LoRA。H3 权重来自 [Comfy-Org/MiniMax-H3](https://huggingface.co/Comfy-Org/MiniMax-H3)；超分权重来自 [Real-ESRGAN v0.2.1](https://github.com/xinntao/Real-ESRGAN/releases/tag/v0.2.1)。超分先按模型倍率推理，再调整到配置要求的尺寸。
 
 ## 运行记录与验证边界
 

@@ -13,6 +13,16 @@ from .pipeline import Production
 def main(argv=None) -> int:
     args = _parser().parse_args(argv)
     try:
+        if args.command == "run-season":
+            from .season import run_season
+            report = run_season(args.package, args.output, config=args.config, auto_approve=args.auto_approve)
+            _print(report)
+            return 0 if report["status"] == "complete" else 2
+        if args.command == "collect":
+            from .delivery import collect_delivery
+            report = collect_delivery(args.run_dir, output=args.output)
+            _print(report)
+            return 0 if report["status"] == "complete" else 2
         if args.command == "validate":
             package = load_package(args.package)
             config = load_config(args.config)
@@ -57,6 +67,14 @@ def _parser() -> argparse.ArgumentParser:
         command.add_argument("--config", type=Path, required=True)
     run.add_argument("--output", type=Path, required=True)
     run.add_argument("--auto-approve", action="store_true", help="Proceed to delivery without a manual approval step")
+    season = sub.add_parser("run-season", help="Run or resume every episode listed in overview.json, in order")
+    season.add_argument("package", type=Path, help="Season package directory")
+    season.add_argument("--output", type=Path, required=True)
+    season.add_argument("--config", type=Path, help="Override all episode production configurations")
+    season.add_argument("--auto-approve", action="store_true")
+    collect = sub.add_parser("collect", help="Collect batch runs into videos, SRT files, reports and concise logs")
+    collect.add_argument("run_dir", type=Path, help="Batch output directory containing runs/")
+    collect.add_argument("--output", type=Path, help="Delivery directory (default: RUN_DIR/delivery)")
     for name in ("status", "resume", "approve", "retry"):
         command = sub.add_parser(name)
         command.add_argument("run_dir", type=Path)

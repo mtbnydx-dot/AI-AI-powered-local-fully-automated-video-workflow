@@ -29,7 +29,7 @@ class PipelineTests(unittest.TestCase):
         self.manifest.write_text(json.dumps(self.data))
         self.package = load_package(self.manifest)
         self.config = PipelineConfig.model_validate({
-            "workers": 2, "human_approval": False, "review": {"sample_frames": 2},
+            "generator": "cpu", "workers": 2, "human_approval": False, "review": {"sample_frames": 2},
             "media": {"width": 160, "height": 96, "upscale": "lanczos", "upscale_factor": 2},
         })
         self.run_dir = self.root / "run"
@@ -119,7 +119,10 @@ class PipelineTests(unittest.TestCase):
         state = Production.create(self.package, self.config, self.run_dir).run()
         self.assertEqual(state["status"], "complete")
         self.assertEqual(state["audio"]["transcript"]["status"], "unavailable")
-        self.assertEqual(state["audio"]["subtitles"]["status"], "unavailable")
+        self.assertEqual(state["audio"]["subtitles"]["status"], "complete")
+        self.assertEqual(state["audio"]["subtitles"]["timing"], "script")
+        self.assertFalse(state["audio"]["consistency"]["available"])
+        self.assertIn("等一下。", (self.run_dir / state["final"]).with_name("episode.srt").read_text())
         self.assertEqual([s["attempts"] for s in state["shots"].values()], [1, 1])
 
     def test_package_files_are_snapshotted_and_paths_resolve_from_manifest(self):

@@ -1,0 +1,14 @@
+Create a clear character reference in the requested visual style, showing one person in one continuous image.
+
+Visual style:
+{style}
+
+Character and current wardrobe:
+{description}
+
+Reference roles, when supplied:
+{reference_guide}
+
+Show the person standing naturally, facing the camera with a slight three-quarter turn. Keep the face unobstructed and the complete outfit, headwear and footwear inside the frame with a little surrounding space. Preserve the specified age, build, facial features, hairstyle, clothing materials, colors and accessories. Use soft even illumination and a simple neutral background so skin, fabric and distinctive details remain clear. Apply the style's palette and material treatment without adding a story scene or dramatic shadows across the face.
+
+Compose a single view for a {width} by {height} pixel canvas. Deliver only the character image, without a contact sheet, captions, labels or watermark.

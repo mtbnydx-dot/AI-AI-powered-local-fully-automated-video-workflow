@@ -1,0 +1,179 @@
+api:
+  base_url: https://api.zlk7301.com
+  env_file: .env
+  key_name: QWEN-IMAGE
+generation:
+  model: qwen-image-2.1
+  steps: 20
+  width: 720
+  height: 1280
+  seed_base: 20261101
+scheduler:
+  http_concurrency: 16
+  max_active_jobs: 64
+  poll_interval_seconds: 5
+continuity:
+  additional_reference_assets:
+    character-chen_shang-chen_pearl_shirt:
+    - prop-pearl_shirt
+  sets:
+  - set_id: jiang_mourning_hall_morning
+    anchor_shot: ep01_s001
+    shot_ids:
+    - ep01_s001
+    - ep01_s002
+    - ep01_s003
+    - ep01_s004
+    - ep01_s005
+    - ep01_s006
+    - ep01_s007
+    - ep01_s008
+    - ep01_s009
+    - ep01_s010
+    - ep01_s011
+    - ep01_s012
+    - ep01_s013
+    - ep01_s014
+    - ep01_s015
+    - ep01_s016
+    - ep01_s017
+    - ep01_s018
+    - ep01_s019
+    - ep01_s020
+    - ep01_s021
+    - ep01_s022
+    - ep01_s023
+    - ep01_s024
+  - set_id: jiang_rear_bedroom_lamplit
+    anchor_shot: ep03_s065
+    shot_ids:
+    - ep01_s037
+    - ep01_s038
+    - ep01_s039
+    - ep01_s040
+    - ep01_s041
+    - ep01_s042
+    - ep01_s043
+    - ep01_s044
+    - ep01_s045
+    - ep01_s046
+    - ep01_s047
+    - ep01_s048
+    - ep01_s049
+    - ep01_s050
+    - ep01_s051
+    - ep01_s052
+    - ep01_s053
+    - ep01_s054
+    - ep01_s055
+    - ep01_s056
+    - ep01_s057
+    - ep01_s058
+    - ep01_s059
+    - ep01_s060
+    - ep02_s025
+    - ep02_s026
+    - ep02_s027
+    - ep02_s028
+    - ep02_s029
+    - ep02_s030
+    - ep02_s031
+    - ep02_s032
+    - ep02_s033
+    - ep02_s034
+    - ep02_s035
+    - ep02_s036
+    - ep03_s061
+    - ep03_s062
+    - ep03_s063
+    - ep03_s064
+    - ep03_s065
+    - ep03_s066
+    - ep03_s067
+    - ep03_s068
+    - ep03_s069
+    - ep03_s070
+    - ep03_s071
+    - ep03_s072
+    - ep04_s013
+    - ep04_s014
+    - ep04_s015
+    - ep04_s016
+    - ep04_s017
+    - ep04_s018
+    - ep04_s019
+    - ep04_s020
+    - ep04_s021
+    - ep04_s022
+    - ep04_s023
+    - ep04_s024
+    - ep04_s025
+    - ep04_s061
+    - ep04_s062
+    - ep04_s063
+    - ep04_s064
+    - ep04_s065
+    - ep04_s066
+    - ep04_s067
+    - ep04_s068
+    - ep04_s069
+    - ep04_s070
+    - ep04_s071
+    - ep04_s072
+  - set_id: jiang_bedroom_afternoon
+    anchor_shot: ep07_s040
+    shot_ids:
+    - ep07_s037
+    - ep07_s038
+    - ep07_s039
+    - ep07_s040
+    - ep07_s041
+    - ep07_s042
+    - ep07_s043
+    - ep07_s044
+    - ep07_s045
+    - ep07_s046
+    - ep07_s047
+    - ep07_s048
+    - ep07_s049
+    - ep07_s050
+    - ep07_s051
+    - ep07_s052
+    - ep07_s053
+    - ep07_s054
+    - ep07_s055
+    - ep07_s056
+    - ep07_s057
+    - ep07_s058
+    - ep07_s059
+    - ep07_s060
+  - set_id: jiang_bedroom_morning
+    anchor_shot: ep08_s073
+    shot_ids:
+    - ep08_s073
+    - ep08_s074
+    - ep08_s075
+    - ep08_s076
+    - ep08_s077
+    - ep08_s078
+    - ep08_s079
+    - ep08_s080
+    - ep08_s081
+    - ep08_s082
+    - ep08_s083
+    - ep08_s084
+  - set_id: yamen_courtroom_morning
+    anchor_shot: ep08_s013
+    shot_ids:
+    - ep08_s013
+    - ep08_s014
+    - ep08_s015
+    - ep08_s016
+    - ep08_s017
+    - ep08_s018
+    - ep08_s019
+    - ep08_s020
+    - ep08_s021
+    - ep08_s022
+    - ep08_s023
+    - ep08_s024

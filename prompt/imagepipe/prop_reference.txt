@@ -1,0 +1,14 @@
+Create a clear reference of the described story prop or group of props in one coherent image.
+
+Visual style:
+{style}
+
+Prop and required state:
+{description}
+
+Reference roles, when supplied:
+{reference_guide}
+
+Show the specified quantity, silhouette, material, color, construction, wear and distinctive small details clearly. Arrange the object or set at a useful three-quarter viewing angle against a simple neutral surface and background, with soft even light and believable contact shadows. Keep the complete object or set inside the frame with surrounding space. If the prop is clothing, display its actual shape and fastening details without a person. Physical writing, inscriptions or marks belonging to the described object remain part of the object.
+
+Compose a single view for a {width} by {height} pixel canvas. Deliver the prop image without added captions, identification labels, comparison panels or watermark.

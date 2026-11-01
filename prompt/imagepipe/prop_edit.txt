@@ -1,0 +1,14 @@
+Produce the required state of the same prop shown in the reference.
+
+Visual style:
+{style}
+
+Target prop and state:
+{description}
+
+Ordered reference roles:
+{reference_guide}
+
+Apply the described change while preserving the object's recognizable design, material, color, scale and unaffected details. The target description determines the number of objects or pieces and their arrangement. For a broken object, the pieces belong to the same original object, retaining its matching material and design. Preserve the reference's simple background, soft illumination and viewing angle unless the requested state requires a different arrangement. Keep all required parts visible inside the frame.
+
+Compose one coherent prop image for a {width} by {height} pixel canvas. Physical writing or marks specified for the prop are allowed; add no explanatory text, before-and-after panels or watermark.

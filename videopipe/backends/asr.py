@@ -47,7 +47,7 @@ def transcribe(video: Path, config: ASRConfig, output_dir: Path) -> dict:
                     f"ASR process exited {completed.returncode}: {completed.stderr[-2000:].strip()}"
                 )
             result = json.loads(worker_output.read_text(encoding="utf-8"))
-            _validate_result(result)
+            result = normalize_transcript(result)
             result.update(model=config.model, gpu=config.gpu, compute_type=config.compute_type)
     except Exception as error:
         result = {"status": "unavailable", "model": config.model,
@@ -59,29 +59,38 @@ def transcribe(video: Path, config: ASRConfig, output_dir: Path) -> dict:
     return result
 
 
-def _validate_result(result: dict) -> None:
+def normalize_transcript(result: dict) -> dict:
+    """Keep usable sentences; bad word timing falls back to sentence timing."""
     if not isinstance(result, dict) or result.get("status") != "complete":
         raise ValueError("ASR did not return a complete result")
     if not isinstance(result.get("segments"), list):
         raise ValueError("ASR segments must be a list")
-    for segment in result["segments"]:
+    segments, warnings = [], []
+    for index, segment in enumerate(result["segments"]):
         if not isinstance(segment, dict) or not isinstance(segment.get("text"), str):
-            raise ValueError("ASR segment must include text")
-        _validate_times(segment)
+            warnings.append(f"Segment {index}: missing text; skipped")
+            continue
+        if not _valid_times(segment):
+            warnings.append(f"Segment {index}: invalid sentence timestamps; skipped")
+            continue
+        segment = dict(segment)
         words = segment.get("words", [])
-        if not isinstance(words, list):
-            raise ValueError("ASR words must be a list")
-        for word in words:
-            if not isinstance(word, dict) or not isinstance(word.get("word"), str):
-                raise ValueError("ASR word must include text")
-            _validate_times(word)
+        if not isinstance(words, list) or any(
+            not isinstance(word, dict) or not isinstance(word.get("word"), str)
+            or not _valid_times(word) for word in words
+        ):
+            segment.pop("words", None)
+            warnings.append(f"Segment {index}: invalid word timing; using sentence timestamps")
+        segments.append(segment)
+    if result["segments"] and not segments:
+        raise ValueError("ASR has no usable sentence timestamps")
+    return {**result, "segments": segments, "timing_warnings": warnings}
 
 
-def _validate_times(item: dict) -> None:
+def _valid_times(item: dict) -> bool:
     start, end = item.get("start"), item.get("end")
-    if not all(isinstance(value, (int, float)) and not isinstance(value, bool)
-               and math.isfinite(value) for value in (start, end)) or not 0 <= start < end:
-        raise ValueError("ASR has invalid timestamps")
+    return (all(isinstance(value, (int, float)) and not isinstance(value, bool)
+                and math.isfinite(value) for value in (start, end)) and 0 <= start < end)
 
 
 def _transcribe_local(video: Path, model_name: str, compute_type: str,

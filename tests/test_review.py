@@ -90,7 +90,7 @@ class ReviewTests(unittest.TestCase):
         self.assertIn("passed", payload["structured_outputs"]["json"]["properties"])
         self.assertFalse(payload["chat_template_kwargs"]["enable_thinking"])
         self.assertNotIn("suggested_prompt", json.dumps(payload["structured_outputs"]))
-        self.assertIn("Never infer audio", payload["messages"][0]["content"])
+        self.assertIn("Do not infer spoken words", payload["messages"][0]["content"])
         parts = payload["messages"][1]["content"]
         texts = "\n".join(part["text"] for part in parts if part["type"] == "text")
         self.assertIn("A quiet landscape sequence", texts)
@@ -233,23 +233,29 @@ class ReviewTests(unittest.TestCase):
 
     def test_transcript_comparison_is_text_only_and_advisory(self):
         self.set_response({"matches": False, "summary": "One spoken line is missing", "differences": ["Missing: hello"]})
-        result = self.reviewer.compare_transcript("Character says hello.", {
-            "status": "complete", "segments": [{"start": 0.0, "end": 0.5, "text": "Goodbye"}],
+        expected = [{"shot_id": "s1", "text": "Hello", "shot_start": 0.0, "shot_end": 0.5}]
+        result = self.reviewer.compare_transcript(expected, {
+            "status": "complete", "segments": [{"start": 0.0, "end": 0.5, "text": "Goodbye",
+                                                    "words": [{"start": 0.0, "end": 0.5, "word": "Goodbye"}]}],
         }, self.output)
         self.assertTrue(result["available"])
         self.assertFalse(result["matches"])
         self.assertNotIn("passed", result)
         self.assertEqual(result["differences"], ["Missing: hello"])
         self.assertNotIn("image_url", json.dumps(self.server.requests[0]))
+        payload = json.loads(self.server.requests[0][1]["messages"][1]["content"])
+        self.assertEqual(payload["expected_dialogue"], expected)
+        self.assertNotIn("script", payload)
+        self.assertNotIn("words", payload["segments"][0])
         self.assertTrue((self.output / "result.json").is_file())
 
     def test_transcript_or_comparison_service_unavailable_does_not_raise(self):
-        skipped = self.reviewer.compare_transcript("Script", {"status": "disabled"}, self.output / "disabled")
+        skipped = self.reviewer.compare_transcript([], {"status": "disabled"}, self.output / "disabled")
         self.assertFalse(skipped["available"])
         self.assertIsNone(skipped["matches"])
         self.assertFalse(self.server.requests)
         self.server.status = 503
-        unavailable = self.reviewer.compare_transcript("Script", {"status": "complete", "segments": []}, self.output / "failed")
+        unavailable = self.reviewer.compare_transcript([], {"status": "complete", "segments": []}, self.output / "failed")
         self.assertFalse(unavailable["available"])
         self.assertIsNone(unavailable["matches"])
         self.assertTrue((self.output / "failed" / "error.txt").is_file())
@@ -295,7 +301,7 @@ class VLLMLaunchTests(unittest.TestCase):
             self.assertEqual(json.loads(args[args.index("--engram-config") + 1]), {"cpu_offload": True})
             self.assertEqual(args[args.index("--max-model-len") + 1], "16384")
             self.assertEqual(args[args.index("--gpu-memory-utilization") + 1], "0.80")
-            self.assertEqual(args[args.index("--max-num-seqs") + 1], "2")
+            self.assertEqual(args[args.index("--max-num-seqs") + 1], "6")
             self.assertNotIn("--speculative-config", args)
             # Defaults keep the shared review/ASR service on GPU7 with TP1.
             for name in ("REVIEW_GPUS", "REVIEW_TP", "REVIEW_CONTEXT", "REVIEW_MAX_SEQS", "REVIEW_GPU_MEMORY"):

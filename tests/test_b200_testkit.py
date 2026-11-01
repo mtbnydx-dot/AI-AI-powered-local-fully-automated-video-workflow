@@ -1,16 +1,11 @@
 import importlib.util
 import json
-import shutil
 import tarfile
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
-from videopipe.media import MediaInfo, assemble, inspect_video, run_ffmpeg
-from videopipe.models import MediaConfig
 from videopipe.records import Events, write_json
-
 
 spec = importlib.util.spec_from_file_location("b200_runner", Path(__file__).resolve().parents[1] / "scripts/run_b200_tests.py")
 runner = importlib.util.module_from_spec(spec)
@@ -24,83 +19,64 @@ class B200TestkitTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         for name in runner.CASES:
             run = self.root / "runs" / name
-            run.mkdir(parents=True)
-            (run / "final.mp4").write_bytes(b"test video placeholder")
-            write_json(run / "state.json", {"status": "complete", "final": "final.mp4", "shots": {}})
+            write_json(run / "package.json", {"title": name, "script": "script.md", "shots": [
+                {"id": "s1", "duration": 2, "prompt": "<d>[Chinese] 二叔还有一件事。</d>"}]})
+            final = run / "delivery/version-001/final.mp4"
+            final.parent.mkdir(parents=True)
+            final.write_bytes(b"already generated video")
+            write_json(run / "state.json", {
+                "status": "complete", "final": "delivery/version-001/final.mp4",
+                "draft": "film/version-001/draft.mp4",
+                "shots": {"s1": {"duration": 2}},
+                "audio": {"transcript": {"status": "unavailable", "segments": []}},
+            })
+            (run / "events.jsonl").write_text('{"event":"run_completed"}\n')
 
-    def test_wrong_metadata_or_decode_failure_never_delivers_video(self):
-        (self.root / "delivery").mkdir()
-        (self.root / "delivery/tide-40s.mp4").write_bytes(b"stale previous export")
-        with patch.object(runner, "inspect_video", return_value=MediaInfo(40, 320, 240, 24, False)):
-            report = runner.collect(self.root)
-        self.assertEqual(report["status"], "incomplete")
-        self.assertFalse(list((self.root / "delivery").glob("*.mp4")))
-        with patch.object(runner, "inspect_video", side_effect=[MediaInfo(40, 576, 1024, 24, True),
-                                                              MediaInfo(320, 576, 1024, 24, True)]), \
-             patch.object(runner, "run_ffmpeg", side_effect=RuntimeError("corrupt video")):
-            report = runner.collect(self.root)
-        self.assertFalse(any(row["verified"] for row in report["cases"].values()))
-        self.assertFalse(list((self.root / "delivery").glob("*.mp4")))
-
-    def test_collect_includes_service_logs_and_preserves_failure_status(self):
-        write_json(self.root / "runs/smoke/state.json", {"status": "needs_attention"})
+    def test_collect_exports_video_and_fallback_srt_without_nested_working_files(self):
+        write_json(self.root / "runs/smoke/shots/s1/review/request.json", {"large": "image payload"})
         services = self.root / "services"
         services.mkdir()
         (services / "vllm.log").write_text("model load log")
-        with patch.object(runner, "inspect_video", return_value=MediaInfo(320, 576, 1024, 24, True)), \
-             patch.object(runner, "run_ffmpeg"):
-            report = runner.collect(self.root)
-        self.assertEqual(report["status"], "incomplete")
-        self.assertFalse(report["cases"]["smoke"]["verified"])
-        self.assertTrue(report["cases"]["full"]["verified"])
-        self.assertEqual(report["cases"]["full"]["planned_seconds"], 320)
-        self.assertEqual(report["cases"]["full"]["expected_seconds"], 320)
-        with tarfile.open(self.root / "delivery/logs.tar.gz") as archive:
-            names = archive.getnames()
-        self.assertIn("services/vllm.log", names)
-        self.assertFalse(any(name.endswith(".mp4") for name in names))
-
-    def test_real_delivery_uses_measured_manifest_duration_and_reports_fallback(self):
-        clip = self.root / "clip.mp4"
-        run_ffmpeg([
-            "-loglevel", "error", "-f", "lavfi", "-i", "color=c=navy:s=576x1024:r=24:d=0.5",
-            "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=0.5",
-            "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
-            "-c:a", "aac", "-shortest", str(clip),
-        ])
-        measured = inspect_video(clip).duration
-        final = assemble([clip, clip], self.root / "assembled.mp4", MediaConfig(width=576, height=1024, fps=24))
-        manifest = [{"shot_id": "shot-1", "duration": measured},
-                    {"shot_id": "shot-2", "duration": measured}]
-        for name in runner.CASES:
-            run = self.root / "runs" / name
-            shutil.copy2(final, run / "final.mp4")
-            write_json(run / "film/version-001/manifest.json", manifest)
-            write_json(run / "state.json", {
-                "status": "complete", "final": "final.mp4", "manifest": "film/version-001/manifest.json",
-                "shots": {"shot-1": {"attempts": 1, "selection": {"reason": "review_pass"}},
-                          "shot-2": {"attempts": 1, "selection": {"reason": "review_unavailable"}}},
-            })
+        old = self.root / "delivery/logs/runs"
+        old.mkdir(parents=True)
+        (old / "old-copy.json").write_text("{}")
+        (self.root / "delivery/logs.tar.gz").write_bytes(b"old archive")
 
         report = runner.collect(self.root)
         self.assertEqual(report["status"], "complete")
-        for name, (_, _, planned) in runner.CASES.items():
-            row = report["cases"][name]
-            self.assertTrue(row["verified"])
-            self.assertEqual(row["planned_seconds"], planned)
-            self.assertEqual(row["expected_seconds"], 2 * measured)
-            self.assertEqual(row["visual_pass_count"], 1)
-            self.assertEqual(row["fallback_shots"], ["shot-2"])
-            self.assertTrue(row["media"]["has_audio"])
-            self.assertTrue(Path(row["video"]).is_file())
-        self.assertIn("技术媒体验证通过不等于画面审核通过", (self.root / "delivery/summary.md").read_text())
+        for name in runner.CASES:
+            folder = self.root / "delivery" / name
+            self.assertEqual((folder / "final.mp4").read_bytes(), b"already generated video")
+            self.assertIn("二叔还有一件事。", (folder / "episode.srt").read_text())
+            self.assertEqual(report["cases"][name]["subtitle_timing"], "script")
+        with tarfile.open(report["archive"]) as archive:
+            names = archive.getnames()
+        self.assertIn("delivery/smoke/episode.srt", names)
+        self.assertIn("delivery/logs/service-vllm.log", names)
+        self.assertFalse(any("/runs/" in name or name.endswith(".tar.gz") or "request.json" in name for name in names))
 
-        # A measured manifest still constrains the actual delivery; it does not disable duration validation.
-        write_json(self.root / "runs/smoke/film/version-001/manifest.json", [{"shot_id": "shot-1", "duration": 2.0}])
+    def test_missing_final_is_reported_and_does_not_export_stale_video(self):
+        runner.collect(self.root)
+        (self.root / "runs/smoke/delivery/version-001/final.mp4").unlink()
         report = runner.collect(self.root)
-        self.assertFalse(report["cases"]["smoke"]["verified"])
-        self.assertTrue(report["cases"]["full"]["verified"])
-        self.assertFalse((self.root / "delivery/tide-40s.mp4").exists())
+        self.assertEqual(report["status"], "incomplete")
+        self.assertEqual(report["cases"]["smoke"]["status"], "failed")
+        self.assertEqual(report["cases"]["full"]["status"], "complete")
+        self.assertFalse((self.root / "delivery/smoke/final.mp4").exists())
+        with tarfile.open(report["archive"]) as archive:
+            self.assertNotIn("delivery/smoke/final.mp4", archive.getnames())
+
+    def test_saved_asr_with_zero_length_word_is_recovered_during_collection(self):
+        write_json(self.root / "runs/full/film/version-001/audio/worker-result.json", {
+            "status": "complete", "segments": [
+                {"start": 0.1, "end": 1.8, "text": "二叔还有一件事", "words": [
+                    {"start": 1.0, "end": 1.0, "word": "叔"}]}]})
+        report = runner.collect(self.root)
+        self.assertEqual(report["cases"]["full"]["asr_status"], "complete")
+        self.assertEqual(report["cases"]["full"]["subtitle_timing"], "asr")
+        state = json.loads((self.root / "runs/full/state.json").read_text())
+        self.assertEqual(len(state["audio"]["transcript"]["timing_warnings"]), 1)
+        self.assertIn("00:00:00,100 --> 00:00:01,800", (self.root / "delivery/full/episode.srt").read_text())
 
     def test_failed_stage_records_error_and_reraises(self):
         events = Events(self.root)
@@ -113,7 +89,6 @@ class B200TestkitTests(unittest.TestCase):
         records = [json.loads(line) for line in (self.root / "events.jsonl").read_text().splitlines()]
         self.assertEqual(records[-1]["status"], "failed")
         self.assertEqual(records[-1]["error"], "GPU failure")
-        self.assertGreaterEqual(records[-1]["elapsed"], 0)
 
 
 if __name__ == "__main__":

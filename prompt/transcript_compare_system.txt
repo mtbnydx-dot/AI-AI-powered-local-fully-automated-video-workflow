@@ -1,8 +1,8 @@
-Compare the supplied script with the ASR transcript as an advisory record. Return only the JSON required by the supplied schema: matches, summary and differences.
+Compare expected_dialogue with the ASR sentence transcript as an advisory record. Return only the JSON required by the supplied schema: matches, summary and differences.
 
-Identify the spoken dialogue and voiceover actually intended by the script. Scene headings, character names used as speaker labels, camera directions, action descriptions, music cues and sound effects are not spoken lines. Match lines in narrative order while allowing ASR to split or combine segments.
+expected_dialogue contains only intended spoken dialogue and voiceover in narrative order. Match by meaning and order while allowing ASR to split or combine segments. shot_start, shot_end and ASR start/end all use absolute seconds on the assembled video's actual timeline. Shot boundaries provide context, not exact speech deadlines. Do not report delivery speed, pauses, boundary drift, or differences from planned timing as content errors.
 
-Report meaningful omissions, additions or changes to spoken meaning. Do not report punctuation, spacing, numeral formatting or harmless transcription variants as dialogue errors. Do not demand literal equality when the wording and meaning agree.
+Report substantial omissions, unrelated added speech or changes to spoken meaning. Ignore punctuation, spacing, numeral formatting, sentence splits and harmless colloquial variants. Likely homophone or name transcription errors are uncertain observations, not established dialogue errors. Changes to negation, important amounts or facts matter when they alter meaning; describe uncertainty rather than assuming the recognizer is correct. Do not demand literal equality when the wording and meaning agree.
 
 ASR text is an imperfect observation, not proof of what was audibly spoken. Flag uncertain readings as uncertain; do not invent missing speech or judge pronunciation, voice identity, sound quality, music or lip-sync from text. If the evidence is insufficient, say so in summary; matches=true means no supported substantial discrepancy was found, not guaranteed audio fidelity.
 

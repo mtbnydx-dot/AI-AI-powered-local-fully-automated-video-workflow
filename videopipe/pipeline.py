@@ -301,19 +301,17 @@ class Production:
 
     def _process_audio(self) -> None:
         from .backends.asr import transcribe
-        from .subtitles import create_subtitles
+        from .subtitles import create_subtitles, extract_dialogue
 
         folder = (self.root / self.state["draft"]).parent / "audio"
         with self.events.stage("asr"):
             transcript = transcribe(self.root / self.state["draft"], self.config.asr, folder)
-        consistency = {"status": "disabled"}
-        if transcript["status"] == "complete" and self.config.review.backend == "vllm":
-            consistency = self.reviewer.compare_transcript(
-                self.package.script.read_text(encoding="utf-8"), transcript, folder / "comparison")
-        write_json(folder / "consistency.json", consistency)
         timed_shots = [shot.model_copy(update={"duration": self.state["shots"][shot.id]["duration"]})
                        for shot in self.package.shots]
         subtitles = create_subtitles(timed_shots, transcript, folder / "subtitles")
+        consistency = self.reviewer.compare_transcript(
+            extract_dialogue(timed_shots), transcript, folder / "comparison")
+        write_json(folder / "consistency.json", consistency)
         self.state["audio"] = {"transcript": transcript, "consistency": consistency, "subtitles": subtitles}
         self.events.emit("audio_reported", asr_status=transcript["status"], consistency=consistency,
                          subtitle_status=subtitles["status"])

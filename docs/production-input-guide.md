@@ -129,7 +129,7 @@ JSON 中长提示词仍是一个字符串，换行用 `\n`；不要加入注释�
 | `acceptance` | 可选，只列少量重要、可从画面判断的要求；不要把台词准确率、声线或配乐写成画面拒绝项 |
 | `asset_bindings` | 可选；无生成首帧时走 T2VA，有首帧时走 I2VA |
 | `negative_prompt` | 新包建议省略；如旧包使用该字段，输入模块会一次性以 `Avoid:` 合并，再冻结有效全文 |
-| `parameters` | 一般省略；确需调整时可写受现有工作流支持的技术参数，例如 `{"steps":20}` |
+| `parameters` | 一般省略，继承默认 10 步；确需调整时可写受现有工作流支持的技术参数，例如 `{"steps":10}` |
 
 `parameters` 不能覆盖 `prompt`、`seed`、尺寸、帧率、帧数、时长、反馈或参考资产。这些内容要填在正式字段中。任意新参数也不会自动接入 ComfyUI 图；当前图没有使用的参数不会产生预期效果。
 
@@ -162,15 +162,15 @@ cp configs/b200.yaml /data/input/episode-001/production.yaml
 
 这份配置已经包含七个 ComfyUI 地址、Qwen 审核地址和以下生产规则：
 
-- 生成及单片段超分使用 GPU 0–6；整张 GPU 7 供 Qwen 和可选 ASR 进程共享。
-- 画面审核并发为 2，需与启动服务的 `REVIEW_MAX_SEQS` 对齐；增加到 4 前测实际显存和吞吐。
-- `max_attempts: 3`，包含首次生成；`human_approval: true`，最后等待人工终审。
+- 生成及单片段超分使用 GPU 0–6；整张 GPU 7 供 Qwen3.8 和 ASR 进程共享。
+- 默认生成 10 步；画面审核并发为 6，与启动服务的 `REVIEW_MAX_SEQS` 对齐。
+- `max_attempts: 3`，包含首次生成；`human_approval: false`，自动完成交付。
 - 默认画布 864 × 480，2 倍超分，最终规格为 **1728 × 960**，不会自动变成 1920 × 1080。
-- ASR 默认关闭。
+- ASR 在 GPU 配置默认开启；显式 CPU 配置默认关闭。
 
 `shots[].width/height` 控制生成尺寸，配置的 `media.width/height` 控制统一成片画布；通常保持二者一致。例如做竖屏时可同时改为 480 × 864，默认 2 倍输出就是 960 × 1728。仅修改镜头尺寸、没有同步 `media`，后处理仍会套用旧画布。
 
-需要 ASR 和字幕时，在完整配置里替换 `asr` 段；不要把以下片段当成整份 B200 配置：
+需要指定 ASR 本地权重路径或语言时，在完整配置里替换 `asr` 段；不要把以下片段当成整份 B200 配置：
 
 ```yaml
 asr:
@@ -215,13 +215,13 @@ python -m videopipe status /data/runs/episode-001-v1
 python -m videopipe resume /data/runs/episode-001-v1
 ```
 
-状态到 `awaiting_approval` 时，观看 `film/version-001/draft.mp4`，查看降级镜头和音频报告。确认后执行：
+默认无需批准。只有主动配置 `human_approval: true` 才会进入 `awaiting_approval`；此时观看 `film/version-001/draft.mp4`，查看降级镜头和音频报告，确认后执行：
 
 ```bash
 python -m videopipe approve /data/runs/episode-001-v1
 ```
 
-首次交付在 `delivery/version-001/final.mp4`，同时有 `production_report.json`；字幕匹配成功时还会复制 `episode.srt`。后续版本编号递增，以 `state.json` 中的路径为准。生产示例保留人工终审，不使用 `--auto-approve`。
+首次交付在 `delivery/version-001/final.mp4`，同时有 `production_report.json`；字幕匹配成功时还会复制 `episode.srt`。后续版本编号递增，以 `state.json` 中的路径为准。默认配置不需要额外传入 `--auto-approve`。
 
 ## 7. 不通过时系统会做什么
 

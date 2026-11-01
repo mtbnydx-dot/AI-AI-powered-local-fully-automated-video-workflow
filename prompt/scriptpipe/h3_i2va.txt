@@ -1,0 +1,13 @@
+For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.
+
+integrated_multimodal_description: [Shot 1] {style}
+Begin with the exact composition, character identities, clothing, object positions and spatial layout in <Picture 1>. Use one continuous shot. Preserve identities, wardrobe and screen direction throughout the action. All spoken lines are in Mandarin Chinese, exactly as quoted.
+{subjects}
+{visual}
+{camera}
+{dialogue}
+Complete the described action within the shot and end in a stable, readable pose. Keep the finished image free of captions, subtitles and watermarks.
+
+overall_soundscape: {soundscape}
+
+non_diegetic_music: N/A

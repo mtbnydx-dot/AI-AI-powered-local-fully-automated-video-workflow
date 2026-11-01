@@ -1,0 +1,14 @@
+api:
+  base_url: https://api.zlk7301.com
+  env_file: .env
+  key_name: QWEN-IMAGE
+generation:
+  model: qwen-image-2.1
+  steps: 20
+  width: 720
+  height: 1280
+  seed_base: 20261101
+scheduler:
+  http_concurrency: 16
+  max_active_jobs: 64
+  poll_interval_seconds: 5

@@ -89,6 +89,8 @@ class PipelineHTTPTests(unittest.TestCase):
             self.threads.append(thread)
         self.config = PipelineConfig(
             generator="comfyui",
+            workers=1,
+            asr={"enabled": False},
             comfyui=ComfyConfig(
                 urls=[f"http://127.0.0.1:{self.comfy.server_port}"],
                 workflow=self.workflow, poll_interval=0.01, timeout=5,
@@ -97,7 +99,7 @@ class PipelineHTTPTests(unittest.TestCase):
                 backend="vllm", url=f"http://127.0.0.1:{self.review.server_port}/v1",
                 sample_frames=2, max_frame_size=96, workers=1,
             ),
-            media=MediaConfig(width=96, height=64, fps=24),
+            media=MediaConfig(width=96, height=64, fps=24, upscale="none"),
             human_approval=False,
         )
 

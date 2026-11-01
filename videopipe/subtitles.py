@@ -1,8 +1,9 @@
-"""Conservative alignment of original prompt dialogue to observed ASR timing."""
+"""Always deliver script subtitles, refining their timing with usable ASR."""
 
 from __future__ import annotations
 
 from pathlib import Path
+from itertools import groupby
 import re
 import unicodedata
 
@@ -31,42 +32,57 @@ def extract_dialogue(shots: list[Shot]) -> list[dict]:
 
 
 def create_subtitles(shots: list[Shot], transcript: dict, output_dir: Path) -> dict:
-    """Write only reliable matches, recording omissions instead of guessing times."""
+    """ASR supplies timing, not permission to include a scripted line."""
     dialogue = extract_dialogue(shots)
-    result = {"status": "unavailable", "path": None, "matched": [], "unmatched": []}
-    try:
-        output_dir.mkdir(parents=True, exist_ok=True)
-        path = output_dir / "episode.srt"
-        path.unlink(missing_ok=True)
-        if not dialogue:
-            result["status"] = "no_dialogue"
-        elif transcript.get("status") != "complete":
-            result["unmatched"] = [{**line, "reason": "asr_unavailable"} for line in dialogue]
-        else:
-            units = _timestamped_units(transcript.get("segments", []))
-            cursor = 0.0
-            for line in dialogue:
-                match = _find_match(line, units, cursor)
-                if match is None:
-                    result["unmatched"].append({**line, "reason": "no_reliable_timestamp_match"})
-                    continue
-                start, end = match
-                result["matched"].append({**line, "start": start, "end": end})
-                cursor = end
-            if result["matched"]:
-                cues = [f"{index}\n{_srt_time(line['start'])} --> {_srt_time(line['end'])}\n{line['text']}\n"
-                        for index, line in enumerate(result["matched"], start=1)]
-                path.write_text("\n".join(cues), encoding="utf-8-sig")
-                result.update(path=str(path), status="partial" if result["unmatched"] else "complete")
-            else:
-                result["status"] = "unaligned"
-    except Exception as error:
-        result.update(status="unavailable", path=None, error=f"{type(error).__name__}: {error}")
-    try:
-        write_json(output_dir / "subtitles.json", result)
-    except OSError as error:
-        result["record_error"] = str(error)
+    units = _timestamped_units(transcript.get("segments", [])) if transcript.get("status") == "complete" else []
+    lines = []
+    for _, group in groupby(dialogue, key=lambda line: line["shot_id"]):
+        lines.extend(_time_shot(list(group), units))
+    output_dir.mkdir(parents=True, exist_ok=True)
+    path = output_dir / "episode.srt"
+    cues = [f"{index}\n{_srt_time(line['start'])} --> {_srt_time(line['end'])}\n{line['text']}\n"
+            for index, line in enumerate(lines, start=1)]
+    path.write_text("\n".join(cues), encoding="utf-8")
+    matched = [line for line in lines if line["timing"] == "asr"]
+    fallback = [line for line in lines if line["timing"] == "script"]
+    result = {"status": "complete" if lines else "no_dialogue", "path": str(path),
+              "timing": ("mixed" if matched else "script") if fallback else ("asr" if matched else "none"),
+              "matched": matched, "fallback": fallback}
+    write_json(output_dir / "subtitles.json", result)
     return result
+
+
+def _time_shot(lines: list[dict], units: list[dict]) -> list[dict]:
+    timed, cursor = [], lines[0]["shot_start"]
+    for line in lines:
+        match = _find_match(line, units, cursor)
+        if match:
+            start, end = match
+            timed.append({**line, "start": start, "end": end, "timing": "asr"})
+            cursor = end
+        else:
+            timed.append(dict(line))
+    anchors = [-1, *(i for i, line in enumerate(timed) if "start" in line), len(timed)]
+    for left, right in zip(anchors, anchors[1:]):
+        if right == left + 1:
+            continue
+        start = timed[left]["end"] if left >= 0 else lines[0]["shot_start"]
+        end = timed[right]["start"] if right < len(timed) else lines[-1]["shot_end"]
+        if end - start < 0.001 * (right - left - 1):
+            # If an observed line fills the shot, use one coherent coarse timeline.
+            return _script_times(lines, lines[0]["shot_start"], lines[-1]["shot_end"])
+        timed[left + 1:right] = _script_times(lines[left + 1:right], start, end)
+    return timed
+
+
+def _script_times(lines: list[dict], start: float, end: float) -> list[dict]:
+    weights = [max(1, len(_normalized(line["text"]))) for line in lines]
+    total, elapsed, timed = sum(weights), 0, []
+    for line, weight in zip(lines, weights):
+        timed.append({**line, "start": start + (end - start) * elapsed / total,
+                      "end": start + (end - start) * (elapsed + weight) / total, "timing": "script"})
+        elapsed += weight
+    return timed
 
 
 def _normalized(text: str) -> tuple[str, ...]:
@@ -96,10 +112,8 @@ def _find_match(line: dict, units: list[dict], cursor: float) -> tuple[float, fl
     target = _normalized(line["text"])
     if not target or re.search(r"\n\s*\n", line["text"]):
         return None
-    # Use only observed intervals within this shot. Never split a segment by
-    # character count or invent timestamps for missing dialogue.
-    eligible = [item for item in units if item["start"] >= max(line["shot_start"], cursor)
-                and item["end"] <= line["shot_end"]]
+    eligible = [item for item in units if item["end"] > max(line["shot_start"], cursor)
+                and item["start"] < line["shot_end"]]
     for index, first in enumerate(eligible):
         combined = ()
         previous_end = first["start"]
@@ -109,7 +123,7 @@ def _find_match(line: dict, units: list[dict], cursor: float) -> tuple[float, fl
             combined += item["text"]
             previous_end = item["end"]
             if combined == target:
-                return first["start"], item["end"]
+                return max(first["start"], line["shot_start"], cursor), min(item["end"], line["shot_end"])
             if target[:len(combined)] != combined:
                 break
     return None

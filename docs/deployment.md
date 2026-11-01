@@ -113,18 +113,18 @@ COMFYUI_DIR=/mnt/video-runtime/ComfyUI COMFY_GPUS=0 COMFY_PORT=8188 \
 PATH=/mnt/video-runtime/vllm/bin:$PATH \
   QWEN_MODEL_PATH=/mnt/video-models/Qwen3.8-Flash-Next-NVFP4 \
   REVIEW_GPUS=7 REVIEW_TP=1 REVIEW_GPU_MEMORY=0.80 \
-  REVIEW_CONTEXT=16384 REVIEW_MAX_SEQS=2 \
+  REVIEW_CONTEXT=16384 REVIEW_MAX_SEQS=6 \
   FLASHINFER_WORKSPACE_BASE=/mnt/video-cache/vllm \
   bash deploy/start-vllm.sh
 ```
 
-脚本固定 `--quantization modelopt`，通过官方 [`--engram-config '{"cpu_offload":true}'`](https://github.com/vllm-project/vllm/blob/main/vllm/config/engram.py) 将相应 embedding 放到 CPU，使用 TP1，不启用 MTP。0.80 显存比例、16K context 和并发 2 是本项目的初始值，尚未在本轮真实 B200 上验证；CPU offload 也需要足够主机内存。
+脚本固定 `--quantization modelopt`，通过官方 [`--engram-config '{"cpu_offload":true}'`](https://github.com/vllm-project/vllm/blob/main/vllm/config/engram.py) 将相应 embedding 放到 CPU，使用 TP1，不启用 MTP。0.80 显存比例、16K context 和并发 6 是本项目的初始值，尚未在本轮真实 B200 上验证；CPU offload 也需要足够主机内存。
 
-GPU7 供 vLLM 常驻进程与可选 ASR 子进程共用。`configs/b200.yaml` 默认 `asr.enabled: false`；启用时须为应用环境单独准备并锁定 `videopipe[asr]` 的可选依赖 wheelhouse（CPU bundle 不包含它），以及完整本地 `large-v3` 模型，或将 `asr.model` 指向本地目录。配置采用 `gpu: 7`、`compute_type: int8_float16`。ASR 在成片拼接后运行一次，结束后退出；vLLM 仍常驻，二者显存需求仍会重叠。`REVIEW_GPU_MEMORY=0.80` 不是 ASR 的硬隔离或剩余显存保证。ASR 不可用只记日志，不阻断人工终审。
+GPU7 供 vLLM 常驻进程与 ASR 子进程共用。GPU 配置默认 `asr.enabled: true`；须为应用环境准备 `videopipe[asr]` 依赖（CPU bundle 不包含它），以及完整本地 `large-v3` 模型，或将 `asr.model` 指向本地目录。配置采用 `gpu: 7`、`compute_type: int8_float16`。ASR 在成片拼接后运行一次，结束后退出；vLLM 仍常驻，二者显存需求仍会重叠。`REVIEW_GPU_MEMORY=0.80` 不是 ASR 的硬隔离或剩余显存保证。ASR 不可用只记日志，不阻断交付。
 
-先用两路单镜头审核及启用 ASR 后的完整流程测量 GPU7 峰值显存、延迟和失败情况。稳定后如需提高吞吐，同时把 `REVIEW_MAX_SEQS` 与 `review.workers` 从 2 调到 4，再重复同样实测；不因启动成功就认定四路审核和 ASR 共存已满足容量要求。将最终参数与 wheel、模型 revision 一起写入部署记录。
+`REVIEW_MAX_SEQS` 与 `review.workers` 默认均为 6。部署时应以 GPU7 实际峰值显存、延迟和失败情况确定容量；本次配置调整不包含实机测试。将实际运行参数与 wheel、模型 revision 一起写入部署记录。
 
-预编译 kernels 随 vLLM wheelhouse 安装；运行时编译缓存放在数据盘的 `FLASHINFER_WORKSPACE_BASE`。单卡 PRO6000 可先仅启用 ComfyUI，采用 CPU Review；8 卡 B200 按 [配置文件](../configs/b200.yaml) 在 GPU0–6 启动七个 ComfyUI 实例，为各实例指定不同 `COMFY_GPUS`、`COMFY_PORT`、`COMFY_INPUT_DIR`、`COMFY_OUTPUT_DIR`，GPU7 留给上述 Qwen 和可选 ASR。
+预编译 kernels 随 vLLM wheelhouse 安装；运行时编译缓存放在数据盘的 `FLASHINFER_WORKSPACE_BASE`。GPU 配置默认使用 8 卡 B200（包括保留旧名称的 `pro6000.yaml`），按 [配置文件](../configs/b200.yaml) 在 GPU0–6 启动七个 ComfyUI 实例，为各实例指定不同 `COMFY_GPUS`、`COMFY_PORT`、`COMFY_INPUT_DIR`、`COMFY_OUTPUT_DIR`，GPU7 留给上述 Qwen 和 ASR。
 
 ```bash
 .venv/bin/videopipe run examples/product/package.json \

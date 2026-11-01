@@ -1,0 +1,16 @@
+Create the opening frame of the following shot as one complete, continuous scene. This is a new composition built from the references, not a reproduction of their layouts.
+
+Visual style:
+{style}
+
+Shot opening at time zero:
+{description}
+
+Ordered reference roles:
+{reference_guide}
+
+Use each character reference for that person's facial identity, age, build, hair and current wardrobe. Keep different characters distinct. Use location references for architecture, materials and fixed furnishings. An environment anchor supplies only the established setting and lighting: its people, their poses and any incidental objects do not automatically belong in this shot. Prop references supply the named objects' shape, material, color and current state. Include the people and objects called for by the shot, in the positions and quantities described there; a supplied reference is not itself a requirement to display its whole contents.
+
+The shot description determines framing, camera angle, expressions, hand positions, spatial relationships, time of day and lighting. Show the stated starting instant with objects already present in their specified positions, leaving any subsequent action to the video. Integrate everyone into the same perspective and illumination, with natural contact and occlusion. Preserve the current shot's crop rather than forcing full-body views from the reference portraits.
+
+Compose for a {width} by {height} pixel canvas. Deliver only the scene, without storyboard panels, subtitles, dialogue text, interface elements or watermark. Physical writing on story objects or scenery remains allowed when specified by the shot.

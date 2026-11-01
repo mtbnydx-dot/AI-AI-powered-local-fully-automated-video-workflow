@@ -95,7 +95,7 @@ class VLLMReviewer:
             "structured_outputs": {"json": ReviewResult.model_json_schema()},
         }
 
-    def compare_transcript(self, script_text: str, transcript: dict, output_dir: Path) -> dict:
+    def compare_transcript(self, dialogue: list[dict], transcript: dict, output_dir: Path) -> dict:
         """A text-only advisory record. This result never approves or rejects generated media."""
         output_dir.mkdir(parents=True, exist_ok=True)
         if transcript.get("status") != "complete":
@@ -108,8 +108,9 @@ class VLLMReviewer:
             "chat_template_kwargs": {"enable_thinking": False},
             "messages": [
                 {"role": "system", "content": load_prompt("transcript_compare_system.txt")},
-                {"role": "user", "content": json.dumps({"script": script_text,
-                    "segments": transcript.get("segments", [])}, ensure_ascii=False)},
+                {"role": "user", "content": json.dumps({"expected_dialogue": dialogue,
+                    "segments": [{key: segment[key] for key in ("start", "end", "text")}
+                                 for segment in transcript.get("segments", [])]}, ensure_ascii=False)},
             ],
             "structured_outputs": {"json": _TranscriptComparison.model_json_schema()},
         }
@@ -165,7 +166,7 @@ class CPUReviewer:
             warnings=["Semantic quality and motion were not assessed."], issues=issues,
         ))
 
-    def compare_transcript(self, script_text: str, transcript: dict, output_dir: Path) -> dict:
+    def compare_transcript(self, dialogue: list[dict], transcript: dict, output_dir: Path) -> dict:
         output_dir.mkdir(parents=True, exist_ok=True)
         result = {"available": False, "matches": None, "summary": "No language model configured for script comparison.",
                   "differences": []}

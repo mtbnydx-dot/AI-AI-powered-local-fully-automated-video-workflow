@@ -29,7 +29,7 @@ videopipe resume /data/runs/episode-001
 
 ## ASR 和字幕
 
-ASR 默认关闭。需要时在既有 Python 环境安装可选依赖，再配置本地模型：
+GPU 配置默认开启 ASR。部署时在应用 Python 环境安装所需依赖，并准备本地模型：
 
 ```bash
 python -m pip install -e '.[asr]'

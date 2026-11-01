@@ -1,0 +1,188 @@
+"""Plan once, write episodes concurrently, review, repair, and export text packages."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import re
+from datetime import datetime, timezone
+from pathlib import Path
+
+from .checks import check_episode
+from .export import export_season
+from .llm import GLMClient, write_json
+
+ROOT = Path(__file__).resolve().parent.parent
+
+
+def prompt(name: str) -> str:
+    return (ROOT / "prompt" / "scriptpipe" / f"{name}.txt").read_text(encoding="utf-8")
+
+
+def read_json(path: Path) -> dict:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def compact_episode(episode: dict) -> dict:
+    """Keep the actual shot evidence needed for story and production review."""
+    fields = ("id", "scene_id", "location_id", "time_of_day", "characters", "prop_ids",
+              "duration", "beat_zh", "action_start_zh", "action_end_zh", "action_complete",
+              "cut_reason_zh", "visual_en", "camera_en", "soundscape_en",
+              "first_frame_prompt_en", "acceptance_en", "dialogue")
+    return {**{k: v for k, v in episode.items() if k != "shots"},
+            "shots": [{k: s[k] for k in fields if k in s} for s in episode.get("shots", [])]}
+
+
+def structural_issues(episodes: list[dict], season: dict) -> list[dict]:
+    return [{**issue, "episode_id": ep.get("id")}
+            for ep in episodes for issue in check_episode(ep, season)]
+
+
+def merge_episode_repair(episode: dict, patch: dict) -> dict:
+    """Replace only explicitly repaired shots; preserve every unaffected shot."""
+    if patch.get("id") != episode["id"]:
+        raise ValueError(f"Repair changed episode ID: {episode['id']}")
+    by_id = {shot["id"]: shot for shot in episode["shots"]}
+    replacements = patch.get("shots", [])
+    replacement_ids = [shot["id"] for shot in replacements]
+    if len(replacement_ids) != len(set(replacement_ids)) or not set(replacement_ids) <= by_id.keys():
+        raise ValueError("A local repair must reference unique existing shot IDs")
+    by_id.update((shot["id"], shot) for shot in replacements)
+    order = patch.get("shot_order", [shot["id"] for shot in episode["shots"]])
+    if len(order) != len(by_id) or set(order) != by_id.keys():
+        raise ValueError("shot_order must contain every existing shot exactly once")
+    result = {**episode, "shots": [by_id[shot_id] for shot_id in order]}
+    for field in ("title", "synopsis", "start_state", "end_state"):
+        if field in patch:
+            result[field] = patch[field]
+    return result
+
+
+async def run(source_path: Path, out: Path, client: GLMClient, *, episode_count: int = 12,
+              repair_rounds: int = 2, production_config: Path | None = None,
+              notes_path: Path | None = None, review_reasoning_effort: str = "low") -> dict:
+    out.mkdir(parents=True, exist_ok=True)
+    state_file = out / "run.json"
+    state = {"source": str(source_path.resolve()), "model": client.model,
+             "endpoint": client.endpoint, "episode_count": episode_count,
+             "planning_effort": client.reasoning_effort, "writing_effort": "low",
+             "review_effort": review_reasoning_effort,
+             "status": "running", "started_at": datetime.now(timezone.utc).isoformat()}
+    if state_file.exists():
+        previous = read_json(state_file)
+        if previous.get("source") != state["source"] or previous.get("episode_count") != episode_count:
+            raise ValueError("This output directory contains a different experiment; choose a new output directory")
+        state["started_at"] = previous.get("started_at", state["started_at"])
+    write_json(state_file, state)
+    original = source_path.read_text(encoding="utf-8")
+    source = re.sub(r"\.mw-parser-output[^{}]*\{[^{}]*\}", "", original)
+    (out / "source.cleaned.txt").write_text(source, encoding="utf-8")
+    if source != original:
+        client.event("source_cleaned", removed_characters=len(original) - len(source),
+                     reason="Remove embedded MediaWiki CSS; keep original source file unchanged")
+    notes = notes_path.read_text(encoding="utf-8") if notes_path else ""
+    brief = {
+        "episode_count": episode_count, "shots_per_episode": "12-15",
+        "preferred_duration_seconds": 5.875, "maximum_duration_seconds": 6,
+        "image_size": "576x1024 vertical 9:16", "fps": 24,
+        "format": "Live-action Chinese period short drama; full original plot including reunion",
+        "language": "Chinese script and exact Mandarin dialogue; English visual/audio/image instructions",
+        "action_rule": "Complete a small action inside one shot; cut after a settled result, never split one action across adjacent shots",
+        "scope": "Text and image slots only; do not create images or videos",
+        "adaptation_decisions": [
+            "Retain Ming-era setting and the complete causal chain, including Ping and the final reunion.",
+            "Condense repetitive exposition; write natural modern Mandarin dialogue without changing who knows what.",
+            "Depict the Qixi deception through non-graphic aftermath; distinguish the initial deception from the later affair.",
+            "Preserve the historical reunion without erasing Ping; show all three adults' choices rather than moralizing narration.",
+            "The Hepu case is an accidental death and historical settlement, not discovery of an invented murderer.",
+        ],
+    }
+    try:
+        season_file = out / "season.json"
+        if season_file.exists():
+            season = read_json(season_file)
+            client.event("stage_resumed", stage="season")
+        else:
+            season = await client.complete("season", prompt("season"), {
+                "brief": brief, "source_text": source, "editor_notes": notes,
+            }, max_tokens=32768)
+            write_json(season_file, season)
+        plans = season.get("episodes", [])
+        if len(plans) != episode_count or len({p["id"] for p in plans}) != episode_count:
+            raise ValueError("Season plan must contain the requested number of uniquely identified episodes")
+
+        async def write_episode(plan: dict) -> dict:
+            destination = out / "drafts" / f"{plan['id']}.json"
+            if destination.exists():
+                client.event("stage_resumed", stage="episode", episode_id=plan["id"])
+                return read_json(destination)
+            episode = await client.complete(plan["id"], prompt("episode"), {
+                "brief": brief, "source_text": source, "editor_notes": notes,
+                "season": season, "episode_plan": plan,
+            }, reasoning_effort="low")
+            if episode.get("id") != plan["id"]:
+                raise ValueError(f"Episode ID differs from requested plan: {plan['id']}")
+            write_json(destination, episode)
+            return episode
+
+        episodes = list(await asyncio.gather(*(write_episode(plan) for plan in plans)))
+        reviews: list[dict] = []
+        for cycle in range(repair_rounds + 1):
+            issues = structural_issues(episodes, season)
+            review = await client.complete(f"review_{cycle}", prompt("review"), {
+                "brief": brief, "source_text": source, "editor_notes": notes,
+                "season": season, "episodes": [compact_episode(ep) for ep in episodes],
+                "structural_issues": issues,
+            }, max_tokens=32768, temperature=0.3, reasoning_effort=review_reasoning_effort)
+            write_json(out / "reviews" / f"review_{cycle}.json", review)
+            reviews.append(review)
+            combined = issues + review.get("issues", [])
+            errors = [x for x in combined if x.get("severity") == "error"]
+            client.event("review_finished", cycle=cycle, errors=len(errors),
+                         warnings=sum(x.get("severity") == "warning" for x in combined))
+            if not errors or cycle == repair_rounds:
+                break
+            global_errors = [x for x in errors if not x.get("episode_id")]
+
+            async def repair_episode(episode: dict) -> dict:
+                relevant = [x for x in errors if x.get("episode_id") == episode["id"]] + global_errors
+                if not relevant:
+                    return episode
+                patch = await client.complete(f"{episode['id']}_repair_{cycle}", prompt("repair_shots"), {
+                    "brief": brief, "source_text": source, "editor_notes": notes,
+                    "season": season, "episode": episode, "issues": relevant,
+                    "adjacent_episode_summaries": [
+                        {"id": ep["id"], "start_state": ep.get("start_state"),
+                         "end_state": ep.get("end_state"), "synopsis": ep.get("synopsis")}
+                        for ep in episodes],
+                }, reasoning_effort="low")
+                repaired = merge_episode_repair(episode, patch)
+                write_json(out / "drafts" / f"{episode['id']}.before_repair_{cycle}.json", episode)
+                write_json(out / "drafts" / f"{episode['id']}.json", repaired)
+                return repaired
+
+            episodes = list(await asyncio.gather(*(repair_episode(ep) for ep in episodes)))
+
+        checks = structural_issues(episodes, season)
+        final_review = reviews[-1]
+        summary = export_season(season, episodes, out / "delivery",
+                                production_config or Path("configs/b200.yaml"))
+        quality = {"structural_issues": checks, "model_review": final_review,
+                   "review_rounds": len(reviews),
+                   "open_errors": [x for x in checks + final_review.get("issues", [])
+                                   if x.get("severity") == "error"],
+                   "scope": "Text/package checks only. No images, audio or videos were generated or assessed."}
+        write_json(out / "quality.json", quality)
+        write_json(out / "delivery" / "quality.json", quality)
+        if quality["open_errors"]:
+            summary["status"] = "needs_text_revision_images_pending"
+            write_json(out / "delivery" / "overview.json", summary)
+        state.update(status="text_ready" if not quality["open_errors"] else "needs_text_revision",
+                     finished_at=datetime.now(timezone.utc).isoformat(), summary=summary)
+        write_json(state_file, state)
+        client.event("export_finished", status=state["status"], output=str(out / "delivery"))
+        return state
+    except Exception as exc:
+        state.update(status="failed", error=str(exc).replace(client.key, "[REDACTED]"))
+        write_json(state_file, state)
+        raise
