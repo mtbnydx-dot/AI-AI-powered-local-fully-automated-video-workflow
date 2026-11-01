@@ -5,7 +5,6 @@ review:
   backend: cpu
   sample_frames: 4
   max_frame_size: 320
-  reject_once: [shot-02]
 media:
   width: 320
   height: 192

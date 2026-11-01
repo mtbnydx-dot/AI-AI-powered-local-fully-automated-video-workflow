@@ -59,8 +59,6 @@ custom_nodes/
 *.jpg
 *.jpeg
 *.webp
-!examples/product/references/*.png
-!examples/tide_letter/assets/**/*.png
 
 # OS/editor
 .DS_Store
@@ -76,3 +74,4 @@ examples
 tmp
 .env
 materials
+bundle

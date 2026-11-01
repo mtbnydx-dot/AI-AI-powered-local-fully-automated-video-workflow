@@ -22,4 +22,4 @@ include = ["videopipe*", "scriptpipe*", "imagepipe*", "prompt"]
 
 [tool.setuptools.package-data]
 videopipe = ["workflows/*.json", "workflows/*.md"]
-prompt = ["*.txt", "product/*.txt", "scriptpipe/*.txt", "imagepipe/*.txt"]
+prompt = ["script/*.txt", "image/*.txt", "videopipe/*.txt"]

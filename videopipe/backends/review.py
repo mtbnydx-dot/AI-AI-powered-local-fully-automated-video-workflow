@@ -66,19 +66,19 @@ class VLLMReviewer:
         content = [{
             "type": "text",
             "text": load_prompt(
-                "review_user.txt", duration=duration, script=self.script,
+                "videopipe/videopipe_visual_review_user.txt", duration=duration, script=self.script,
                 shot_specs=json.dumps(shot_specs, ensure_ascii=False),
             ),
         }]
         for shot in shots:
             for index, reference in enumerate(shot.reference_images, start=1):
                 content.append({"type": "text", "text": load_prompt(
-                    "review_reference.txt", index=index, shot_id=shot.id,
+                    "videopipe/videopipe_visual_review_reference.txt", index=index, shot_id=shot.id,
                 )})
                 content.append(_image_part(reference, self.config.max_frame_size))
         for index, frame in enumerate(frames):
             timestamp = duration * (index + 0.5) / len(frames)
-            content.append({"type": "text", "text": load_prompt("review_frame.txt", timestamp=timestamp)})
+            content.append({"type": "text", "text": load_prompt("videopipe/videopipe_visual_review_frame.txt", timestamp=timestamp)})
             content.append(_image_part(frame, self.config.max_frame_size))
         return {
             "model": self.config.model,
@@ -88,7 +88,7 @@ class VLLMReviewer:
             "messages": [
                 {
                     "role": "system",
-                    "content": load_prompt("review_system.txt"),
+                    "content": load_prompt("videopipe/videopipe_visual_review_system.txt"),
                 },
                 {"role": "user", "content": content},
             ],
@@ -107,7 +107,7 @@ class VLLMReviewer:
             "model": self.config.model, "temperature": 0, "max_tokens": self.config.max_tokens,
             "chat_template_kwargs": {"enable_thinking": False},
             "messages": [
-                {"role": "system", "content": load_prompt("transcript_compare_system.txt")},
+                {"role": "system", "content": load_prompt("videopipe/videopipe_transcript_compare_system.txt")},
                 {"role": "user", "content": json.dumps({"expected_dialogue": dialogue,
                     "segments": [{key: segment[key] for key in ("start", "end", "text")}
                                  for segment in transcript.get("segments", [])]}, ensure_ascii=False)},

@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def prompt(name: str) -> str:
-    return (ROOT / "prompt" / "scriptpipe" / f"{name}.txt").read_text(encoding="utf-8")
+    return (ROOT / "prompt" / "script" / f"scriptpipe_{name}.txt").read_text(encoding="utf-8")
 
 
 def read_json(path: Path) -> dict:
@@ -85,16 +85,13 @@ async def run(source_path: Path, out: Path, client: GLMClient, *, episode_count:
         "episode_count": episode_count, "shots_per_episode": "12-15",
         "preferred_duration_seconds": 5.875, "maximum_duration_seconds": 6,
         "image_size": "576x1024 vertical 9:16", "fps": 24,
-        "format": "Live-action Chinese period short drama; full original plot including reunion",
+        "format": "Live-action short drama; setting and complete story follow the supplied source and editor notes",
         "language": "Chinese script and exact Mandarin dialogue; English visual/audio/image instructions",
         "action_rule": "Complete a small action inside one shot; cut after a settled result, never split one action across adjacent shots",
         "scope": "Text and image slots only; do not create images or videos",
         "adaptation_decisions": [
-            "Retain Ming-era setting and the complete causal chain, including Ping and the final reunion.",
+            "Preserve the source's complete causal chain and ending; follow explicit adaptation decisions in editor notes.",
             "Condense repetitive exposition; write natural modern Mandarin dialogue without changing who knows what.",
-            "Depict the Qixi deception through non-graphic aftermath; distinguish the initial deception from the later affair.",
-            "Preserve the historical reunion without erasing Ping; show all three adults' choices rather than moralizing narration.",
-            "The Hepu case is an accidental death and historical settlement, not discovery of an invented murderer.",
         ],
     }
     try:
@@ -103,7 +100,7 @@ async def run(source_path: Path, out: Path, client: GLMClient, *, episode_count:
             season = read_json(season_file)
             client.event("stage_resumed", stage="season")
         else:
-            season = await client.complete("season", prompt("season"), {
+            season = await client.complete("season", prompt("short_season_plan"), {
                 "brief": brief, "source_text": source, "editor_notes": notes,
             }, max_tokens=32768)
             write_json(season_file, season)
@@ -116,7 +113,7 @@ async def run(source_path: Path, out: Path, client: GLMClient, *, episode_count:
             if destination.exists():
                 client.event("stage_resumed", stage="episode", episode_id=plan["id"])
                 return read_json(destination)
-            episode = await client.complete(plan["id"], prompt("episode"), {
+            episode = await client.complete(plan["id"], prompt("short_episode_write"), {
                 "brief": brief, "source_text": source, "editor_notes": notes,
                 "season": season, "episode_plan": plan,
             }, reasoning_effort="low")
@@ -129,7 +126,7 @@ async def run(source_path: Path, out: Path, client: GLMClient, *, episode_count:
         reviews: list[dict] = []
         for cycle in range(repair_rounds + 1):
             issues = structural_issues(episodes, season)
-            review = await client.complete(f"review_{cycle}", prompt("review"), {
+            review = await client.complete(f"review_{cycle}", prompt("short_season_review"), {
                 "brief": brief, "source_text": source, "editor_notes": notes,
                 "season": season, "episodes": [compact_episode(ep) for ep in episodes],
                 "structural_issues": issues,
@@ -148,7 +145,7 @@ async def run(source_path: Path, out: Path, client: GLMClient, *, episode_count:
                 relevant = [x for x in errors if x.get("episode_id") == episode["id"]] + global_errors
                 if not relevant:
                     return episode
-                patch = await client.complete(f"{episode['id']}_repair_{cycle}", prompt("repair_shots"), {
+                patch = await client.complete(f"{episode['id']}_repair_{cycle}", prompt("short_shot_repair"), {
                     "brief": brief, "source_text": source, "editor_notes": notes,
                     "season": season, "episode": episode, "issues": relevant,
                     "adjacent_episode_summaries": [

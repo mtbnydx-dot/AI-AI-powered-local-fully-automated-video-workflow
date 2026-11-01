@@ -85,7 +85,7 @@ def snapshot_inputs(root: Path, package: ScriptPackage, config: PipelineConfig) 
     for shot in package.shots:
         if shot.negative_prompt:
             # Legacy packages supplied two fields; freeze their combined text once at input.
-            shot.prompt += "\n\n" + load_prompt("h3_legacy_negative.txt", negative_prompt=shot.negative_prompt)
+            shot.prompt += "\n\n" + load_prompt("videopipe/videopipe_legacy_negative.txt", negative_prompt=shot.negative_prompt)
             shot.negative_prompt = ""
         if not shot.asset_bindings:
             shot.asset_bindings = [AssetBinding(

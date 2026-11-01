@@ -163,6 +163,6 @@ class GLMClient:
                         raise RuntimeError(f"{name} failed after {attempt} attempts: {detail}") from exc
                     if isinstance(exc, (ValueError, json.JSONDecodeError)) and finish_reason != "length":
                         messages.append({"role": "user", "content":
-                                         (Path(__file__).resolve().parent.parent / "prompt" / "scriptpipe" / "json_retry.txt").read_text(encoding="utf-8").strip()})
+                                         (Path(__file__).resolve().parent.parent / "prompt" / "script" / "scriptpipe_json_retry.txt").read_text(encoding="utf-8").strip()})
                     await asyncio.sleep(5 * attempt)
         raise RuntimeError("Unreachable")

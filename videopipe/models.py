@@ -53,8 +53,8 @@ class ReviewConfig(InputModel):
     backend: Literal["cpu", "vllm"] = "vllm"
     url: str = "http://127.0.0.1:8000/v1"
     model: str = "qwen-review"
-    sample_frames: int = Field(default=8, ge=2)
-    max_frame_size: int = Field(default=640, ge=64)
+    sample_frames: int = Field(default=48, ge=2)
+    max_frame_size: int = Field(default=1024, ge=64)
     max_tokens: int = Field(default=2048, gt=0)
     timeout: float = Field(default=300, gt=0)
     reject_once: list[str] = Field(default_factory=list)

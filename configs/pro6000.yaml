@@ -1,2 +1,0 @@
-# Legacy filename; inherit the same eight-GPU B200 defaults as configs/b200.yaml.
-generator: comfyui

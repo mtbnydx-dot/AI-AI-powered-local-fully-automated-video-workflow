@@ -7,7 +7,7 @@ from pathlib import Path
 import yaml
 
 
-_PROMPT = Path(__file__).resolve().parent.parent / "prompt" / "scriptpipe" / "h3_i2va.txt"
+_PROMPT = Path(__file__).resolve().parent.parent / "prompt" / "script" / "scriptpipe_export_h3_i2va.txt"
 _ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 
 
@@ -254,13 +254,13 @@ def export_season(season: dict, episodes: list[dict], out_dir: Path, config_path
 
 ## 补图后交接
 
-- 全季有 {overview['shared_image_slot_count']} 个共享参考槽位和 {overview['shot_count']} 个首帧槽位。目录为空是本次范围要求，不是图片丢失。
+- 全季有 {overview['shared_image_slot_count']} 个共享参考槽位和 {overview['shot_count']} 个首帧槽位，按 `image_slots.json` 填入实际图片。
 - 先按季设定生成固定人物/服装、场景、道具参考，同一人物的不同服装沿用同一身份。
-- 按每个首帧的 `reference_asset_ids` 和英文说明制作实际开场构图，目标 576×1024。
+- 使用 `imagepipe run <本包目录> --config configs/imagepipe.yaml`，按每个首帧的 `reference_asset_ids` 和英文说明制作开场构图；图片尺寸由生图配置决定。
 - 单集 `review_only` 槽位的 `source_path` 指向全季参考，补图时复制到槽位的本集 `path`；每集包由此可独立运行。
 - 首帧必须是实际场面，不能用角色三视图拼图替代；镜头保持 24fps，默认 5.875秒。
-- 在所有绑定路径真正有图片后，再使用现有视频 CLI，显式传入该集的 `production.yaml`。现在不能直接运行视频 CLI，否则会报告缺图。
-- 配置沿用八卡 B200、steps=10、审核并发6、超分2倍、ASR启用、无人工批准；视频系统仍负责之后的生成与交付。
+- 图片齐备后可用 `videopipe run-season <本包目录> --output <运行目录>` 逐集生成视频；各集读取自身 `production.yaml`。
+- 视频画布为 576×1024、24fps；服务、步数、超分、ASR 和批准设置由导出时选定的配置保存在各集 `production.yaml` 中。
 
 声音描述属于制作目标，本轮没有验证跨镜声线或口型；时长和对白预算仅为文字阶段检查。
 """

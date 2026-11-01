@@ -17,7 +17,7 @@ def main() -> None:
     parser.add_argument("--endpoint", default=DEFAULT_ENDPOINT)
     parser.add_argument("--episodes", type=int, help="Default: 8 for long-form, otherwise 12")
     parser.add_argument("--long-form", action="store_true", help="Write an hour-long season in scene-sized calls")
-    parser.add_argument("--delivery", type=Path, help="Long-form handoff directory, e.g. examples/pearl_shirt_long")
+    parser.add_argument("--delivery", type=Path, help="Long-form handoff directory, e.g. /data/season")
     parser.add_argument("--stop-after", choices=("season", "plans", "drafts", "review"), help="Save the selected long-form stage and exit")
     parser.add_argument("--concurrency", type=int, default=4)
     parser.add_argument("--repair-rounds", type=int, default=2)

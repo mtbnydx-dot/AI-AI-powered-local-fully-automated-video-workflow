@@ -1,23 +1,12 @@
-<!--
-<document version="0.2.0" updated_at="2026-10-28T21:51:26+08:00" keywords="设计记录,范围,AI视频生产" />
--->
+# 文档入口
 
-# AI 视频生产框架：设计记录
-
-本文档组记录已对齐的设计，供人工审核和后续 agent 开发参考。
-
-- 从头实现新架构。原始代码仅作为功能、参数和 ComfyUI workflow 的参考，已在 PRO6000 跑通的链路作为验证对照。
-- 系统分为脚本包生成和视频生成，当前优先建设视频生产模块。
-- 生产操作使用 CLI，目标环境为离线的 8 卡 B200 节点。
-
-| 文档 | 内容 |
+| 想了解什么 | 从这里开始 |
 | --- | --- |
-| [生产输入指南](production-input-guide.md) | 实际生产的输入包、完整填写示例、配置与操作步骤 |
-| [模块架构](architecture.md) | 模块职责、ComfyUI 与 vLLM 的集成边界 |
-| [生产工作流](workflow.md) | 脚本包、视频生成、Review、人工审核与交付 |
-| [开发与部署约定](engineering.md) | 外部依赖、离线部署、测试环境、运行记录与开发约束 |
-| [初版验收](acceptance.md) | 实施范围与验收证据 |
-| [输入与运行记录](usage.md) | 脚本包、CLI、返工、运行目录 |
-| [ComfyUI 接入](comfyui.md) | H3、超分 workflow、模型与协议 |
-| [Review 接入](review.md) | vLLM/Qwen 推理、结构化评审与能力边界 |
-| [离线部署](deployment.md) | CPU 应用包、GPU 运行环境与服务启动 |
+| 三个模块怎样完成一部作品；失败、重试和选片如何决策 | [workflow.md](workflow.md) |
+| 代码在哪里；模块、服务、配置和文件怎样协作 | [architecture.md](architecture.md) |
+| 安装、输入格式、运行命令、续跑和产物位置 | [usage.md](usage.md) |
+| GPU 服务、模型文件、环境和离线应用包 | [deployment.md](deployment.md) |
+| 修改与运行时需要保持的机制、验证入口 | [agent-guide.md](agent-guide.md) |
+| 生产模板及调用位置 | [prompt/README.md](../prompt/README.md) |
+
+阅读顺序：流程 → 架构 → 使用；部署时再查运行环境。文档描述当前代码机制，具体参数以配置模型、CLI 和运行快照为准。

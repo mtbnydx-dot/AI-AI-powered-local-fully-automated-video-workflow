@@ -299,7 +299,7 @@ class VLLMLaunchTests(unittest.TestCase):
             self.assertEqual(args[-2:], ["--dtype", "bfloat16"])
             self.assertEqual(args[args.index("--quantization") + 1], "modelopt")
             self.assertEqual(json.loads(args[args.index("--engram-config") + 1]), {"cpu_offload": True})
-            self.assertEqual(args[args.index("--max-model-len") + 1], "16384")
+            self.assertEqual(args[args.index("--max-model-len") + 1], "65536")
             self.assertEqual(args[args.index("--gpu-memory-utilization") + 1], "0.80")
             self.assertEqual(args[args.index("--max-num-seqs") + 1], "6")
             self.assertNotIn("--speculative-config", args)

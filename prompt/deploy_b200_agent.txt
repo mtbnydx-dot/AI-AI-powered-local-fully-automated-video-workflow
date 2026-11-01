@@ -1,8 +1,0 @@
-将 tide-letter-b200-bundle-20261030.tar.gz 部署到八卡 B200 节点。使用包内源码，按 examples/tide_letter/README.md 安装环境，复用或下载指定的 H3、Qwen3.8-Flash-Next-NVFP4、RealESRGAN_x2plus 和 faster-whisper large-v3 权重。按需调整部署路径并 source examples/tide_letter/configs/runtime.env.example，启动 GPU 0–6 的七路 ComfyUI 和 GPU 7 的 Qwen 服务，准备好同卡 ASR 环境。
-
-服务与权重就绪后，在应用 Python 环境、bundle 根目录，使用新的输出目录直接执行：
-python scripts/run_b200_tests.py --phase all --output /mnt/video-runs/tide-b200-20261030
-
-连续完成开场与完整版两段视频，不等待人工批准。只修复实际部署或运行报错，将错误、修复改动和恢复结果记录到输出目录的 agent-log.md。保持模型选择、制作配置、剧本、prompt 和资产不变；不指导模型改提示词，不额外审片，不因画质自行返工或增加制作轮。
-
-完成后将 delivery/ 和 agent-log.md 打包为 tide-b200-results.tar.gz，包含两段成片、已有字幕与系统日志，给出服务器上的绝对下载路径。不扩展其他工作。

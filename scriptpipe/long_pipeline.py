@@ -52,12 +52,12 @@ async def run_long(source_path: Path, out: Path, client: GLMClient, *,
         "episode_duration_seconds": shots_per_episode * 5.875,
         "season_duration_seconds": episode_count * shots_per_episode * 5.875,
         "minimum_season_duration_seconds_exclusive": 3600,
-        "format": "Naturalistic Ming-era Chinese vertical drama; portrait 576x1024, 24fps",
+        "format": "Naturalistic vertical drama with the source's setting and editor-approved style; portrait 576x1024, 24fps",
         "language": "Chinese script and exact Mandarin dialogue; English production, audio and image-slot descriptions",
         "scope": "Text and planned image slots only. No images/audio/video generation.",
         "dramaturgy": "Every scene advances a specific conflict, discovery, choice or consequence. No repeated recaps, padded silent holds, or extending durations to reach the running time.",
         "action_rule": "One complete small action or complete speaking turn per shot. Never split a reach, walk, handover or other physical action across shots. A later settled response may be a new shot.",
-        "source_rule": "Preserve the complete original causal chain including Ping, the Hepu accidental-death settlement and the final reunion; expand meaningful source-supported choices, not invented revenge conspiracies.",
+        "source_rule": "Preserve the complete source causal chain and ending; expand source-supported choices and follow explicit adaptation decisions in editor notes.",
     }
     state_file = out / "run.json"
     state = {"source": str(source_path.resolve()), "model": client.model,
@@ -122,7 +122,7 @@ async def run_long(source_path: Path, out: Path, client: GLMClient, *,
         if season_path.exists():
             season = read_json(season_path)
         else:
-            season = await client.complete("long_season", prompt("long_season"), common,
+            season = await client.complete("long_season", prompt("long_season_plan"), common,
                                             reasoning_effort="low")
             write_json(season_path, season)
         plans = season["episodes"]
@@ -151,7 +151,7 @@ async def run_long(source_path: Path, out: Path, client: GLMClient, *,
             return state
 
         async def write_scene(plan, scene_plan):
-            return await checked(f"{plan['id']}_{scene_plan['id']}", "long_scene",
+            return await checked(f"{plan['id']}_{scene_plan['id']}", "long_scene_write",
                                  {**common, "season": season, "episode_plan": plan,
                                   "scene_plan": scene_plan},
                                  out / "scenes" / plan["id"] / f"{scene_plan['id']}.json",
@@ -193,7 +193,7 @@ async def run_long(source_path: Path, out: Path, client: GLMClient, *,
                     result.extend(check_scene(scene, scene_plan, plan, season))
                 return result
 
-            patch = await checked(f"{episode['id']}_{label}", "long_repair_shots",
+            patch = await checked(f"{episode['id']}_{label}", "long_shot_repair",
                                   {**common, "season": season, "episode": episode,
                                    "issues": issues, "adjacent_episode_plans": plans},
                                   out / "patches" / f"{episode['id']}_{label}.json", validate,

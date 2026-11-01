@@ -20,7 +20,7 @@ def compile_plan(package_dir: Path, config: ImageConfig) -> ImagePlan:
         template, mode = _generation_kind(slot, masters, reference_ids)
         slot_style = slot.get("style_en", style).strip()
         prompt = load_prompt(
-            f"imagepipe/{template}.txt",
+            f"image/imagepipe_{template}.txt",
             style=slot_style,
             description=_description(slot, slot_style),
             reference_guide=_reference_guide(reference_ids, catalogue, slot_style),
