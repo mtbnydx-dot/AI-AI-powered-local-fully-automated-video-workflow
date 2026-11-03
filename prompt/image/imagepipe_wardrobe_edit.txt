@@ -1,14 +1,14 @@
-Create the specified wardrobe variant of the same person shown in the identity reference.
+Dress the person in the identity reference in the target outfit. Keep that person's facial structure, age, skin and hairline.
 
-Visual style:
+Rendering style:
 {style}
 
-Target character and wardrobe:
+Target outfit:
 {description}
 
-Ordered reference roles:
+Reference assignments, in upload order:
 {reference_guide}
 
-Keep the identity reference's face, age, skin tone, body proportions and natural pose. Replace the outfit, headwear, hairstyle and accessories only where the target description specifies a change; the target wardrobe takes precedence over clothing in the identity reference. If a separate garment or accessory reference is supplied, transfer that item's design, material, color and distinctive details onto this person at a believable scale. Keep the other reference objects out of the background.
+Show this one person standing naturally against a plain neutral background, with the full outfit visible and the face clear. Use the identity portrait for facial structure and the target description for the complete outfit, including its dominant visible colors, materials, headwear, hair arrangement and accessories. Replace the portrait's incidental clothing with that outfit; a material or costume category does not override an explicitly specified color. Keep the head and garment hem inside the frame with a little margin. Light the person evenly so garment details and facial features remain legible.
 
-Use the same simple background and clear soft lighting as the identity reference. Show one person in one view with the full outfit inside the frame, face visible and room around the head and feet. Compose for a {width} by {height} pixel canvas. Deliver the wardrobe reference image without captions, labels, collage panels or watermark.
+Deliver one {width} by {height} image of the dressed person, without a story setting, multiple views, panels or watermark.

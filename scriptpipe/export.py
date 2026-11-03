@@ -32,8 +32,18 @@ def _asset_id(kind: str, *identifiers: str) -> str:
 
 def _shared_slots(season: dict) -> dict[str, dict]:
     slots = {}
-    style = season["style_en"].strip()
+    style = season.get("render_style_en", season["style_en"]).strip()
     for character in season["characters"]:
+        identity_id = _asset_id("identity", character["id"])
+        slots[identity_id] = {
+            "asset_id": identity_id,
+            "path": f"assets/review/characters/{identity_id}.png",
+            "purpose": "character_identity",
+            "character_id": character["id"],
+            "prompt_en": "\n".join((style, character["appearance_en"])),
+            "consistency_source": {"character_id": character["id"]},
+            "status": "pending_image",
+        }
         for wardrobe in character["wardrobes"]:
             asset_id = _asset_id("character", character["id"], wardrobe["id"])
             slots[asset_id] = {
@@ -42,7 +52,9 @@ def _shared_slots(season: dict) -> dict[str, dict]:
                 "purpose": "character_identity_and_wardrobe",
                 "character_id": character["id"],
                 "wardrobe_id": wardrobe["id"],
-                "prompt_en": "\n".join((style, character["appearance_en"], wardrobe["description_en"])),
+                "wardrobe_description_en": wardrobe["description_en"],
+                "reference_asset_ids": [identity_id],
+                "prompt_en": "\n".join((style, wardrobe["description_en"])),
                 "consistency_source": {"character_id": character["id"], "wardrobe_id": wardrobe["id"]},
                 "status": "pending_image",
             }
@@ -67,8 +79,10 @@ def _shared_slots(season: dict) -> dict[str, dict]:
 
 def _shot_references(shot: dict) -> list[str]:
     references = [
-        _asset_id("character", member["id"], member["wardrobe_id"])
+        asset_id
         for member in shot["characters"]
+        for asset_id in (_asset_id("identity", member["id"]),
+                         _asset_id("character", member["id"], member["wardrobe_id"]))
     ]
     references.append(_asset_id("location", shot["location_id"]))
     references.extend(_asset_id("prop", prop_id) for prop_id in shot.get("prop_ids", []))
@@ -78,14 +92,13 @@ def _shot_references(shot: dict) -> list[str]:
 def _compile_prompt(shot: dict, season: dict, template: str) -> str:
     characters = {item["id"]: item for item in season["characters"]}
     speaker_labels = {item["id"]: f"S{index}" for index, item in enumerate(season["characters"], start=1)}
+    speaking = {line["speaker_id"] for line in shot.get("dialogue", [])}
     subject_lines = []
     for member in shot["characters"]:
         character = characters[member["id"]]
         wardrobe = next(item for item in character["wardrobes"] if item["id"] == member["wardrobe_id"])
-        subject_lines.append(
-            f"{member['id']} ({speaker_labels[member['id']]}): {character['appearance_en']} "
-            f"Wardrobe {wardrobe['id']}: {wardrobe['description_en']}"
-        )
+        label = f" ({speaker_labels[member['id']]})" if member["id"] in speaking else ""
+        subject_lines.append(f"{member['id']}{label}, wearing {wardrobe['description_en']}")
     dialogue_lines = []
     for line in shot.get("dialogue", []):
         character = characters[line["speaker_id"]]
@@ -101,9 +114,9 @@ def _compile_prompt(shot: dict, season: dict, template: str) -> str:
                 f"{identity} says: <d>[Chinese]{line['text_zh']}</d> with natural synchronized lip movement."
             )
     if dialogue_lines:
-        dialogue_lines.append("Only the identified speaker speaks; all other visible characters keep their lips closed.")
+        dialogue_lines.append("The other visible characters listen silently and react naturally.")
     return template.format(
-        style=season["style_en"].strip(),
+        style=season.get("render_style_en", season["style_en"]).strip(),
         subjects="\n".join(subject_lines) or "No people are visible.",
         visual=shot["visual_en"].strip(),
         camera=shot["camera_en"].strip(),
@@ -191,8 +204,13 @@ def export_season(season: dict, episodes: list[dict], out_dir: Path, config_path
             first_frame = {
                 "asset_id": first_frame_id, "path": first_frame_path, "purpose": "first_frame",
                 "episode_id": episode_id, "shot_id": shot_id,
+                "scene_id": shot["scene_id"],
+                "location_id": shot["location_id"],
+                "time_of_day": shot["time_of_day"],
+                "continuity_en": shot.get("continuity_en", ""),
+                "scene_anchor_shot_id": shot.get("scene_anchor_shot_id", ""),
                 "prompt_en": shot["first_frame_prompt_en"],
-                "style_en": season["style_en"],
+                "style_en": season.get("render_style_en", season["style_en"]),
                 "reference_asset_ids": references,
                 "consistency_source": {
                     "characters": shot["characters"], "location_id": shot["location_id"],
@@ -207,6 +225,7 @@ def export_season(season: dict, episodes: list[dict], out_dir: Path, config_path
                 reference = shared_slots[reference_id]
                 episode_slots[reference_id] = {
                     **reference, "purpose": "review_only", "source_asset_id": reference_id,
+                    "reference_purpose": reference["purpose"],
                     "source_path": f"../../{reference['path']}",
                 }
                 bindings.append({"asset_id": reference_id, "path": reference["path"], "role": "review_only", "prompt_ref": ""})

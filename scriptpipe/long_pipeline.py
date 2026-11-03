@@ -195,7 +195,7 @@ async def run_long(source_path: Path, out: Path, client: GLMClient, *,
 
             patch = await checked(f"{episode['id']}_{label}", "long_shot_repair",
                                   {**common, "season": season, "episode": episode,
-                                   "issues": issues, "adjacent_episode_plans": plans},
+                                   "episode_plan": plan, "issues": issues, "adjacent_episode_plans": plans},
                                   out / "patches" / f"{episode['id']}_{label}.json", validate,
                                   use_cache=False)
             repaired = merge_episode_repair(episode, patch)
@@ -256,6 +256,14 @@ async def run_long(source_path: Path, out: Path, client: GLMClient, *,
         write_json(out / "quality.json", quality)
         if pause("review"):
             return state
+        scene_plans = {scene["id"]: scene for plan in detailed_plans for scene in plan["scenes"]}
+        for episode in episodes:
+            for shot in episode["shots"]:
+                scene = scene_plans[shot["scene_id"]]
+                if scene.get("continuity_en"):
+                    shot["continuity_en"] = scene["continuity_en"]
+                if "anchor_shot_number" in scene:
+                    shot["scene_anchor_shot_id"] = f"{episode['id']}_s{scene['anchor_shot_number']:03}"
         summary = export_season(season, episodes, delivery, production_config or Path("configs/b200.yaml"))
         write_json(delivery / "quality.json", quality)
         if quality["open_errors"]:

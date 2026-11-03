@@ -22,8 +22,9 @@ def compile_plan(package_dir: Path, config: ImageConfig) -> ImagePlan:
         prompt = load_prompt(
             f"image/imagepipe_{template}.txt",
             style=slot_style,
-            description=_description(slot, slot_style),
-            reference_guide=_reference_guide(reference_ids, catalogue, slot_style),
+            description=(_frame_description(slot, catalogue, slot_style)
+                         if slot.get("purpose") == "first_frame" else _description(slot, slot_style)),
+            reference_guide=_reference_guide(reference_ids, catalogue),
             width=config.generation.width,
             height=config.generation.height,
         )
@@ -46,7 +47,8 @@ def _load_inputs(root: Path) -> tuple[list[str], dict[str, dict], list[CopyTask]
     manifest = _read_json(root / "image_slots.json")
     season_path = next((p / "season.json" for p in (root, *root.parents)
                         if (p / "season.json").exists()), None)
-    style = _read_json(season_path).get("style_en", "") if season_path else ""
+    season = _read_json(season_path) if season_path else {}
+    style = season.get("render_style_en", season.get("style_en", ""))
     catalogue = {}
     selected = []
     copies = []
@@ -88,7 +90,8 @@ def _load_inputs(root: Path) -> tuple[list[str], dict[str, dict], list[CopyTask]
             selected.append(asset_id)
             if "source_path" in slot:
                 source_path = str((root / slot["source_path"]).resolve())
-                source = catalogue.get(slot.get("source_asset_id", asset_id), slot)
+                source = catalogue.get(slot.get("source_asset_id", asset_id),
+                                       {**slot, "purpose": slot.get("reference_purpose", slot.get("purpose"))})
                 catalogue[asset_id] = {**source, "asset_id": asset_id, "_target": source_path}
                 copies.append(CopyTask(
                     asset_id=asset_id,
@@ -97,6 +100,18 @@ def _load_inputs(root: Path) -> tuple[list[str], dict[str, dict], list[CopyTask]
                 ))
             else:
                 catalogue[asset_id] = {**slot, "_target": str((root / slot["path"]).resolve())}
+    # Older exported slots keep scene metadata in storyboard.json.
+    contexts = {}
+    for path in sorted(root.rglob("storyboard.json")):
+        episode = _read_json(path)
+        for shot in episode["shots"]:
+            contexts[(episode["id"], shot["id"])] = shot
+    for slot in catalogue.values():
+        if slot.get("purpose") == "first_frame":
+            shot = contexts.get((slot.get("episode_id"), slot.get("shot_id")), {})
+            for field in ("scene_id", "location_id", "time_of_day", "continuity_en", "scene_anchor_shot_id"):
+                if field in shot:
+                    slot.setdefault(field, shot[field])
     return selected, catalogue, copies, style
 
 
@@ -106,8 +121,10 @@ def _dependencies(selected: list[str], catalogue: dict[str, dict], continuity: d
     for asset_id, slot in catalogue.items():
         character_id = slot.get("character_id")
         if character_id:
-            masters.setdefault(character_id, asset_id)
-    anchors = _frame_anchors(catalogue, continuity.get("sets", []))
+            if character_id not in masters or slot.get("purpose") == "character_identity":
+                masters[character_id] = asset_id
+    anchors = _frame_anchors(catalogue, continuity.get("sets", []),
+                             auto=continuity.get("auto_scene_anchors", True))
     additional = continuity.get("additional_reference_assets", {})
     references = {}
     # Appending dependencies here also brings missing season masters into an episode run.
@@ -121,11 +138,20 @@ def _dependencies(selected: list[str], catalogue: dict[str, dict], continuity: d
         if asset_id in anchors:
             refs.append(anchors[asset_id])
         refs = list(dict.fromkeys(refs))
+        missing = [ref for ref in refs if ref not in catalogue]
+        if missing:
+            raise ValueError(f"{asset_id} references missing asset {missing[0]}")
+        if slot.get("purpose") == "first_frame" and len(refs) > 10:
+            identities = {catalogue[ref]["character_id"] for ref in refs
+                          if catalogue[ref].get("purpose") == "character_identity"}
+            garments = [ref for ref in refs if catalogue[ref].get("wardrobe_id")
+                        and catalogue[ref].get("character_id") in identities]
+            required = [ref for ref in refs if ref not in garments]
+            # Faces, set continuity and story props take priority; costume text is always included.
+            refs = required + garments[:max(0, 10 - len(required))]
         if len(refs) > 10:
             raise ValueError(f"{asset_id} needs {len(refs)} reference images; the service accepts at most 10")
         for reference_id in refs:
-            if reference_id not in catalogue:
-                raise ValueError(f"{asset_id} references missing asset {reference_id}")
             if reference_id not in selected:
                 selected.append(reference_id)
         references[asset_id] = refs
@@ -133,10 +159,9 @@ def _dependencies(selected: list[str], catalogue: dict[str, dict], continuity: d
     return references, masters
 
 
-def _frame_anchors(catalogue: dict[str, dict], sets: list[dict]) -> dict[str, str]:
-    if not sets:
-        return {}
+def _frame_anchors(catalogue: dict[str, dict], sets: list[dict], *, auto: bool = True) -> dict[str, str]:
     aliases: dict[str, list[str]] = {}
+    scene_groups, anchors = {}, {}
     for asset_id, slot in catalogue.items():
         if slot.get("purpose") != "first_frame":
             continue
@@ -145,7 +170,19 @@ def _frame_anchors(catalogue: dict[str, dict], sets: list[dict]) -> dict[str, st
             labels.add(f"{slot['episode_id']}/{slot['shot_id']}")
         for label in labels:
             aliases.setdefault(label, []).append(asset_id)
-    anchors = {}
+        if auto and slot.get("scene_id"):
+            key = (slot.get("episode_id"), slot["scene_id"], slot.get("location_id"), slot.get("time_of_day"))
+            scene_groups.setdefault(key, []).append(asset_id)
+    for members in scene_groups.values():
+        planned = catalogue[members[0]].get("scene_anchor_shot_id")
+        if planned:
+            matches = [member for member in members if catalogue[member]["shot_id"] == planned]
+            if not matches:
+                raise ValueError(f"Scene anchor shot {planned!r} is not in its scene")
+            anchor = matches[0]
+        else:
+            anchor = members[0]
+        anchors.update((member, anchor) for member in members if member != anchor)
     for group in sets:
         shots = group.get("shot_ids", group.get("shots", []))
         anchor_label = group.get("anchor_shot", shots[0] if shots else "")
@@ -156,6 +193,7 @@ def _frame_anchors(catalogue: dict[str, dict], sets: list[dict]) -> dict[str, st
                 raise ValueError(f"Set {group.get('set_id', '')}: shot {label!r} is missing or ambiguous")
             resolved.append(matches[0])
         anchor = resolved[0]
+        anchors.pop(anchor, None)
         for member in resolved[1:]:
             if member != anchor:
                 anchors[member] = anchor
@@ -165,6 +203,8 @@ def _frame_anchors(catalogue: dict[str, dict], sets: list[dict]) -> dict[str, st
 def _generation_kind(slot: dict, masters: dict[str, str], references: list[str]) -> tuple[str, str]:
     if slot.get("purpose") == "first_frame":
         template = "first_frame"
+    elif slot.get("purpose") == "character_identity":
+        template = "character_identity"
     elif slot.get("character_id"):
         template = ("character_master" if masters[slot["character_id"]] == slot["asset_id"]
                     else "wardrobe_edit")
@@ -185,23 +225,38 @@ def _description(slot: dict, style: str) -> str:
     return description
 
 
-def _reference_guide(references: list[str], catalogue: dict[str, dict], style: str) -> str:
+def _frame_description(slot: dict, catalogue: dict[str, dict], style: str) -> str:
+    cast = []
+    for ref in slot.get("reference_asset_ids", []):
+        reference = catalogue[ref]
+        if reference.get("wardrobe_id"):
+            costume = reference.get("wardrobe_description_en") or _description(reference, style)
+            cast.append(f"{reference['character_id']} wears {costume.rstrip('.')}")
+    parts = [_description(slot, style)]
+    if cast:
+        count = f"{len(cast)} person is" if len(cast) == 1 else f"{len(cast)} people are"
+        parts.append(f"Exactly {count} visible: " + "; ".join(cast) + ".")
+    elif "characters" in slot.get("consistency_source", {}):
+        parts.append("The frame contains no people.")
+    if slot.get("continuity_en"):
+        parts.append("Scene geography: " + slot["continuity_en"])
+    return " ".join(parts)
+
+
+def _reference_guide(references: list[str], catalogue: dict[str, dict]) -> str:
     lines = []
     for index, asset_id in enumerate(references, start=1):
         slot = catalogue[asset_id]
         if slot.get("purpose") == "first_frame":
-            role = "environment_anchor"
+            role = "the same scene's geography and lighting, reframed from the target camera position"
+        elif slot.get("purpose") == "character_identity":
+            role = f"facial identity and hairline of {slot['character_id']}"
         elif slot.get("character_id"):
-            role = "character_identity_and_wardrobe"
+            role = f"clothing design for {slot['character_id']}, outfit {slot.get('wardrobe_id', '')}"
         elif slot.get("location_id"):
-            role = "location_continuity_reference"
+            role = f"architecture and fixed furnishings of {slot['location_id']}"
         else:
-            role = "prop_continuity_reference"
+            role = f"appearance of {slot.get('prop_id', asset_id)}; quantity and placement come from the target scene"
         label = "the reference image" if len(references) == 1 else f"<image{index}>"
-        fields = [f"asset_id={asset_id}", f"role={role}"]
-        fields.extend(f"{key}={slot[key]}" for key in ("character_id", "wardrobe_id", "location_id", "prop_id")
-                      if slot.get(key))
-        if role != "environment_anchor":
-            fields.append(f"description={_description(slot, slot.get('style_en', style))}")
-        lines.append(f"{label}: " + "; ".join(fields))
+        lines.append(f"{label}: {role}.")
     return "\n".join(lines)

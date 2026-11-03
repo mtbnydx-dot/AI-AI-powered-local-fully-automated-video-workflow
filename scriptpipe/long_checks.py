@@ -127,6 +127,10 @@ def check_long_plan(plan: dict, season: dict, episode_plan: dict, scene_count: i
             seen.add(scene_id)
         first = index * shots_per_scene + 1
         last = first + shots_per_scene - 1
+        anchor = scene.get("anchor_shot_number")
+        if anchor is not None and (type(anchor) is not int or not first <= anchor <= last):
+            _issue(issues, "scene_anchor", f"Scene {scene_id}: anchor must be a shot number from {first} to {last}.", episode_id,
+                   suggested_fix="Choose the medium-wide or wide opening frame that establishes this scene's geography.")
         if type(scene.get("first_shot_number")) is not int or type(scene.get("last_shot_number")) is not int or scene.get("first_shot_number") != first or scene.get("last_shot_number") != last:
             _issue(issues, "scene_shot_range", f"Scene {scene_id}: expected shot range {first}–{last}.", episode_id,
                    suggested_fix=f"Set first_shot_number={first} and last_shot_number={last}.")

@@ -1,14 +1,14 @@
-Create an establishing reference of the described filming location in one coherent camera view.
+Create a reference image of one unoccupied filming space from one eye-level camera position.
 
-Visual style:
+Rendering style:
 {style}
 
-Location:
+The space:
 {description}
 
-Reference roles, when supplied:
+Reference assignments, when supplied:
 {reference_guide}
 
-Make the building materials, fixed furniture, doors, windows, passageways and characteristic architectural details easy to distinguish. Use a readable foreground, middle ground and background, consistent perspective and natural illumination. For a location with several rooms or adjacent areas, show a plausible representative view with natural openings toward connected spaces; each visible room belongs to the same building. This is an unoccupied setting, ready for the story's characters and movable props to be placed later.
+Show a coherent floor plane, the enclosing architecture and the fixed furniture needed for staging. Establish the positions of the entrance, windows and principal furniture with natural perspective. Keep the view specific to this one filmable space, rather than summarizing a whole house or several story locations. An interior reference shows that room; connected spaces may appear only through ordinary doors or windows. An exterior reference shows the specified outdoor space. Use clear, neutral illumination. The set is empty of people, human silhouettes, portraits and story action; later shots will supply the cast, movable story props and camera crop.
 
-Compose one continuous scene for a {width} by {height} pixel canvas. Preserve any physical signage explicitly described as part of the location; add no explanatory labels, subtitles, floor-plan panels or watermark.
+Deliver one continuous {width} by {height} scene, without architectural cutaways, multiple views, panels, labels or watermark.

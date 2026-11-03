@@ -1,16 +1,18 @@
-Create the opening frame of the following shot as one complete, continuous scene. This is a new composition built from the references, not a reproduction of their layouts.
+Create one camera view of one scene at the opening instant of a video shot. All visible people and objects occupy the same physical space and perspective.
 
-Visual style:
+Rendering style:
 {style}
 
-Shot opening at time zero:
+Opening composition and current cast:
 {description}
 
-Ordered reference roles:
+Reference assignments, in upload order:
 {reference_guide}
 
-Use each character reference for that person's facial identity, age, build, hair and current wardrobe. Keep different characters distinct. Use location references for architecture, materials and fixed furnishings. An environment anchor supplies only the established setting and lighting: its people, their poses and any incidental objects do not automatically belong in this shot. Prop references supply the named objects' shape, material, color and current state. Include the people and objects called for by the shot, in the positions and quantities described there; a supplied reference is not itself a requirement to display its whole contents.
+Render each listed person once. Their identity and wardrobe references are views of the same individual: use the identity for the face and the target wardrobe for clothing, including its specified colors. The opening composition determines the visible cast. Any partial figure at a frame edge belongs to its named person, rather than an additional copy.
 
-The shot description determines framing, camera angle, expressions, hand positions, spatial relationships, time of day and lighting. Show the stated starting instant with objects already present in their specified positions, leaving any subsequent action to the video. Integrate everyone into the same perspective and illumination, with natural contact and occlusion. Preserve the current shot's crop rather than forcing full-body views from the reference portraits.
+Location references establish the empty set. Scene references supply fixed geography and light; their people, poses and wide framing are context, not additions to the target composition. Reframe at the requested camera distance and crop, allowing off-camera people and furniture to remain outside the image. Compose the target cast with natural scale, contact and occlusion.
 
-Compose for a {width} by {height} pixel canvas. Deliver only the scene, without storyboard panels, subtitles, dialogue text, interface elements or watermark. Physical writing on story objects or scenery remains allowed when specified by the shot.
+Show only the stated starting state. Make important object support and custody readable: an object held before placement is supported by the named hands and visibly separated from its destination. Prop references define appearance; the opening description defines quantity, position and current state. Leave the subsequent movement and result to the video.
+
+Deliver a single {width} by {height} image of this scene, with continuous geometry and no panel divisions, inset portraits, captions or watermark.

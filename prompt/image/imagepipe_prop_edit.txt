@@ -1,6 +1,6 @@
 Produce the required state of the same prop shown in the reference.
 
-Visual style:
+Rendering style (medium, texture and color treatment):
 {style}
 
 Target prop and state:
