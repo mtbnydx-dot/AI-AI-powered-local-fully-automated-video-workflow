@@ -9,10 +9,11 @@ from videopipe.prompts import load_prompt
 from .models import CopyTask, ImageConfig, ImagePlan, ImageTask
 
 
-def compile_plan(package_dir: Path, config: ImageConfig) -> ImagePlan:
+def compile_plan(package_dir: Path, config: ImageConfig, episode_ids: list[str] | None = None) -> ImagePlan:
     root = Path(package_dir).resolve()
-    selected, catalogue, copies, style = _load_inputs(root)
+    selected, catalogue, copies, style = _load_inputs(root, episode_ids)
     references, masters = _dependencies(selected, catalogue, config.continuity)
+    canonical_indices = {asset_id: index for index, asset_id in enumerate(catalogue)}
     tasks = []
     for index, asset_id in enumerate(selected):
         slot = catalogue[asset_id]
@@ -34,7 +35,7 @@ def compile_plan(package_dir: Path, config: ImageConfig) -> ImagePlan:
             prompt=prompt,
             reference_ids=reference_ids,
             target_path=slot["_target"],
-            seed=config.generation.seed_base + index,
+            seed=config.generation.seed_base + (canonical_indices[asset_id] if episode_ids is not None else index),
         ))
     return ImagePlan(package_root=str(root), tasks=tasks, copies=copies)
 
@@ -43,8 +44,16 @@ def _read_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _load_inputs(root: Path) -> tuple[list[str], dict[str, dict], list[CopyTask], str]:
+def _load_inputs(root: Path, episode_ids: list[str] | None = None
+                 ) -> tuple[list[str], dict[str, dict], list[CopyTask], str]:
     manifest = _read_json(root / "image_slots.json")
+    if episode_ids is not None:
+        if "shared_assets" not in manifest:
+            raise ValueError("Episode selection requires a season package")
+        available = {slot["episode_id"] for slot in manifest.get("first_frames", [])}
+        missing = set(episode_ids) - available
+        if missing:
+            raise ValueError(f"Episodes not found in package: {', '.join(sorted(missing))}")
     season_path = next((p / "season.json" for p in (root, *root.parents)
                         if (p / "season.json").exists()), None)
     season = _read_json(season_path) if season_path else {}
@@ -60,17 +69,23 @@ def _load_inputs(root: Path) -> tuple[list[str], dict[str, dict], list[CopyTask]
             if asset_id in catalogue:
                 raise ValueError(f"Duplicate image asset ID: {asset_id}")
             catalogue[asset_id] = {**slot, "_target": str((root / slot["path"]).resolve())}
-            selected.append(asset_id)
+            if episode_ids is None or slot.get("episode_id") in episode_ids:
+                selected.append(asset_id)
         for path in sorted(root.rglob("image_slots.json")):
             if path.parent == root:
                 continue
+            if episode_ids is not None and path.parent.name not in episode_ids:
+                continue
             for slot in _read_json(path).get("slots", []):
                 if "source_path" in slot:
+                    source_id = slot.get("source_asset_id", slot["asset_id"])
                     copies.append(CopyTask(
-                        asset_id=slot.get("source_asset_id", slot["asset_id"]),
+                        asset_id=source_id,
                         source_path=str((path.parent / slot["source_path"]).resolve()),
                         target_path=str((path.parent / slot["path"]).resolve()),
                     ))
+                    if source_id not in selected:
+                        selected.append(source_id)
     else:
         # A standalone episode can still depend on the season's canonical mother images.
         for parent in root.parents:

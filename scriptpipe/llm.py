@@ -1,4 +1,4 @@
-"""Small streaming client for the user-selected GLM endpoint."""
+"""Small streaming client for the user-selected Ark endpoint."""
 
 from __future__ import annotations
 
@@ -14,7 +14,8 @@ from typing import Any
 import httpx
 
 DEFAULT_ENDPOINT = "https://ark.cn-beijing.volces.com/api/coding/v3"
-DEFAULT_MODEL = "glm-5.3"
+DEFAULT_MODEL = "deepseek-v4.1-flash"
+DEFAULT_KEY_NAME = "DEEPSEEK-KEY"
 
 
 def write_json(path: Path, value: Any) -> None:
@@ -24,12 +25,12 @@ def write_json(path: Path, value: Any) -> None:
     pending.replace(path)
 
 
-def load_key(env_path: Path) -> str:
-    """Read only GLMKEY. Never execute the dotenv file or print its contents."""
-    key = os.environ.get("GLMKEY", "").strip()
+def load_key(env_path: Path, key_name: str = DEFAULT_KEY_NAME) -> str:
+    """Read the selected key without executing the dotenv file."""
+    key = os.environ.get(key_name, "").strip()
     if not key and env_path.exists():
         for line in env_path.read_text(encoding="utf-8-sig").splitlines():
-            match = re.match(r"^\s*(?:export\s+)?GLMKEY\s*=\s*(.*?)\s*$", line)
+            match = re.match(r"^\s*(?:export\s+)?" + re.escape(key_name) + r"\s*=\s*(.*?)\s*$", line)
             if match:
                 value = match.group(1)
                 if value[:1] in {"'", '"'} and value[-1:] == value[:1]:
@@ -38,7 +39,7 @@ def load_key(env_path: Path) -> str:
                     key = value.split(" #", 1)[0].strip()
                 break
     if not key:
-        raise ValueError("GLMKEY is missing from the environment or the selected .env file")
+        raise ValueError(f"{key_name} is missing from the environment or the selected .env file")
     return key
 
 
@@ -55,17 +56,43 @@ def parse_json(content: str) -> dict:
     return result
 
 
+def _quota_reset_at(body: str) -> datetime | None:
+    try:
+        error = json.loads(body).get("error", {})
+        if not isinstance(error, dict) or error.get("code") != "AccountQuotaExceeded":
+            return None
+        match = re.search(
+            r"It will reset at (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} [+-]\d{4})",
+            error.get("message", ""),
+        )
+        return datetime.strptime(match.group(1), "%Y-%m-%d %H:%M:%S %z") if match else None
+    except ValueError:
+        return None
+
+
+class _QuotaExceeded(Exception):
+    def __init__(self, reset_at: datetime):
+        self.reset_at = reset_at
+
+
 class GLMClient:
     def __init__(self, key: str, log_dir: Path, endpoint: str = DEFAULT_ENDPOINT,
                  model: str = DEFAULT_MODEL, concurrency: int = 4,
-                 reasoning_effort: str = "high"):
+                 reasoning_effort: str = "high", max_tokens: int = 65536):
         self.key = key
         self.log_dir = log_dir
         self.endpoint = endpoint.rstrip("/")
         self.model = model
         self.reasoning_effort = reasoning_effort
+        self.max_tokens = max_tokens
         self.semaphore = asyncio.Semaphore(concurrency)
         self.http = httpx.AsyncClient(timeout=httpx.Timeout(1200, connect=30))
+        self.quota_reset_at = 0.0
+        quota_path = self.log_dir / "quota_wait.json"
+        if quota_path.exists():
+            reset_at = datetime.fromisoformat(json.loads(quota_path.read_text())["reset_at"])
+            if reset_at.timestamp() > time.time():
+                self.quota_reset_at = reset_at.timestamp()
 
     async def close(self) -> None:
         await self.http.aclose()
@@ -77,17 +104,32 @@ class GLMClient:
             stream.write(json.dumps(row, ensure_ascii=False) + "\n")
         print(json.dumps(row, ensure_ascii=False), flush=True)
 
+    def _record_quota(self, reset_at: datetime) -> None:
+        self.quota_reset_at = max(self.quota_reset_at, reset_at.timestamp())
+        deadline = datetime.fromtimestamp(self.quota_reset_at, timezone.utc).isoformat()
+        write_json(self.log_dir / "quota_wait.json", {"reset_at": deadline})
+        self.event("quota_wait", reset_at=deadline,
+                   wait_seconds=round(max(0, self.quota_reset_at - time.time()), 1))
+
+    async def _wait_for_quota(self) -> None:
+        while self.quota_reset_at > time.time():
+            await asyncio.sleep(self.quota_reset_at - time.time())
+
     async def complete(self, name: str, system: str, payload: dict,
-                       max_tokens: int = 32768, temperature: float = 0.7,
+                       max_tokens: int | None = None, temperature: float = 0.7,
                        reasoning_effort: str | None = None) -> dict:
         """Save request/answer/usage, stream long thinking calls, retry transient failures."""
+        max_tokens = self.max_tokens if max_tokens is None else max_tokens
         messages = [{"role": "system", "content": system},
                     {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}]
         async with self.semaphore:
-            for attempt in range(1, 4):
+            attempt = 1
+            while attempt <= 3:
+                await self._wait_for_quota()
                 stamp = f"{name}.{time.time_ns()}.attempt{attempt}"
                 request = {"model": self.model, "messages": messages,
                            "max_tokens": max_tokens, "temperature": temperature,
+                           "thinking": {"type": "enabled"},
                            "reasoning_effort": reasoning_effort or self.reasoning_effort,
                            "stream": True, "stream_options": {"include_usage": True}}
                 write_json(self.log_dir / f"{stamp}.request.json", request)
@@ -109,6 +151,9 @@ class GLMClient:
                         if response.status_code != 200:
                             body = (await response.aread()).decode("utf-8", "replace")
                             body = body.replace(self.key, "[REDACTED]")
+                            reset_at = _quota_reset_at(body) if response.status_code == 429 else None
+                            if reset_at is not None and reset_at.timestamp() > time.time():
+                                raise _QuotaExceeded(reset_at)
                             raise RuntimeError(f"HTTP {response.status_code}: {body[:1500]}")
                         async for line in response.aiter_lines():
                             if not line.startswith("data:"):
@@ -145,13 +190,15 @@ class GLMClient:
                                 "reasoning_characters": reasoning_chars, "content": answer}
                     write_json(self.log_dir / f"{stamp}.response.json", metadata)
                     if finish_reason == "length":
-                        max_tokens = min(max_tokens * 2, 96000)
+                        max_tokens = max(max_tokens, min(max_tokens * 2, 96000))
                         raise ValueError("Response hit output limit; retrying with a larger budget")
                     result = parse_json(answer)
                     self.event("request_finished", name=name, attempt=attempt,
                                elapsed_seconds=metadata["elapsed_seconds"], usage=usage,
                                content_characters=len(answer), reasoning_characters=reasoning_chars)
                     return result
+                except _QuotaExceeded as exc:
+                    self._record_quota(exc.reset_at)
                 except (httpx.HTTPError, RuntimeError, ValueError, KeyError) as exc:
                     detail = str(exc).replace(self.key, "[REDACTED]")
                     write_json(self.log_dir / f"{stamp}.error.json", {
@@ -165,4 +212,5 @@ class GLMClient:
                         messages.append({"role": "user", "content":
                                          (Path(__file__).resolve().parent.parent / "prompt" / "script" / "scriptpipe_json_retry.txt").read_text(encoding="utf-8").strip()})
                     await asyncio.sleep(5 * attempt)
+                    attempt += 1
         raise RuntimeError("Unreachable")

@@ -8,25 +8,25 @@
 | `imagepipe` | 整季或单集目录中的 `image_slots.json`、季风格、图片配置 | 写入槽位路径的共享参考图和镜头首帧；单集目录中的参考图副本 |
 | `videopipe` | 单集 `package.json`、其中引用的剧本与图片、视频配置；整季运行另读 `overview.json` | 成片、独立 SRT、生产报告；整季运行还收集汇总与日志压缩包 |
 
-以下生成与审核流程以默认的 GLM、图片任务 API、ComfyUI / vLLM 后端为主。视频另有 CPU 后端：生成参考图缩放预览，审核检查媒体信息和抽帧解码，供本地流程验证。服务地址与模型由配置决定。写作参数来自 CLI 和代码中的 brief；`--production-config` 只决定导出的视频配置。
+以下生成与审核流程以默认的 Ark DeepSeek、图片任务 API、ComfyUI / vLLM 后端为主。视频另有 CPU 后端：生成参考图缩放预览，审核检查媒体信息和抽帧解码，供本地流程验证。服务地址与模型由配置决定。写作参数来自 CLI 和代码中的 brief；`--production-config` 只决定导出的视频配置。
 
 ## scriptpipe：原文到剧本包
 
 ```mermaid
 flowchart TD
     S0["原文 + 可选 notes + CLI 参数"] --> S1["清理嵌入的 MediaWiki CSS<br/>保存 source.cleaned.txt，构造写作 brief"]
-    S1 --> S2["GLM 整季规划，或读取已有 season.json<br/>人物、服装、地点、道具、分集状态"]
+    S1 --> S2["LLM 整季规划，或读取已有 season.json<br/>人物、服装、地点、道具、分集状态"]
     S2 --> S3{"写作模式"}
     S3 -->|短剧| S4["并发写各集分镜<br/>保存或复用 drafts"]
-    S4 --> S5["代码结构检查 + GLM 整季文字审核"]
+    S4 --> S5["代码结构检查 + LLM 整季文字审核"]
     S5 --> S6{"有 error 且仍有修正轮数？"}
     S6 -->|是| S7["按问题修正相关集<br/>合并指定镜头的补丁"]
     S7 --> S5
     S3 -->|长剧| S8["并发分集规划<br/>检查场次、镜头编号范围与引用"]
     S8 --> S9["并发分场写作<br/>检查后保存 scenes"]
     S9 --> S10["按场次顺序合并各集 drafts"]
-    S10 --> S11["逐集结构检查 + GLM 分集审核<br/>在修正轮数内合并局部补丁并复核"]
-    S11 --> S12["GLM 跨集文字审核"]
+    S10 --> S11["逐集结构检查 + LLM 分集审核<br/>在修正轮数内合并局部补丁并复核"]
+    S11 --> S12["LLM 跨集文字审核"]
     S12 --> S13{"有 error 且仍有修正轮数？"}
     S13 -->|是| S14["修正相关集<br/>重新分集审核发生变化的集"]
     S14 --> S12
@@ -38,9 +38,9 @@ flowchart TD
 
 ### 写作与检查
 
-短剧默认 12 集，brief 中的写作目标是每集 12–15 镜，优选单镜 5.875 秒。长剧由 `--long-form` 选择，默认 8 集，允许 5–10 集；每场 12 镜，每集场数按 `ceil(64 × 60 / (集数 × 12 × 5.875))` 计算。长剧检查要求单镜 5.875 秒、整季计划时长严格大于 3600 秒。这里记录的是剧本计划时长，视频阶段使用生成结果的实测时长。
+短剧默认 12 集，brief 中的写作目标是每集 12–15 镜，优选单镜 5.875 秒。长剧由 `--long-form` 选择，集数通过 `--episodes` 配置（默认 8）；每集目标分钟数通过 `--episode-minutes` 配置（默认 5）。每场 12 镜，每集按目标时长取最接近的整场数，至少一场；5 分钟对应 4 场、48 镜、282 秒。长剧检查镜头数量与配置一致、单镜 5.875 秒。这里记录的是剧本计划时长，视频阶段使用生成结果的实测时长。
 
-代码检查覆盖镜头与实体 ID、人物/服装/地点/道具引用、动作和切镜字段、英文说明字段非空且不含中文、对白及计划时长。对白检查包括每镜最多一句、一个说话人、最多 22 个有效字符（含汉字、字母、数字，不计标点和空白），并按 `字符数 / 4 + 0.8` 秒检查时间预算。短剧镜头数在 12–16 之外记为 warning；长剧另检查场次、连续镜头编号、集顺序和全季 ID。GLM 文字审核读取原文、notes、季设定与对应剧本证据，结果与代码检查一起参与修正。
+代码检查覆盖镜头与实体 ID、人物/服装/地点/道具引用、动作和切镜字段、英文说明字段非空且不含中文、对白及计划时长。对白检查包括每镜最多一句、一个说话人、最多 22 个有效字符（含汉字、字母、数字，不计标点和空白），并按 `字符数 / 4 + 0.8` 秒检查时间预算。短剧镜头数在 12–16 之外记为 warning；长剧另检查场次、连续镜头编号、集顺序和全季 ID。LLM 文字审核读取原文、notes、季设定与对应剧本证据，结果与代码检查一起参与修正。
 
 修正与请求重试有三种计数：
 
@@ -48,7 +48,7 @@ flowchart TD
 | --- | --- |
 | 文字审核后的局部修正 | `--repair-rounds` 默认 2，可配置为非负整数。短剧用于整季审核循环；长剧用于分集审核循环与跨集审核循环，跨集修正后还会复核变化的集 |
 | 长剧结构校正 | 分集规划、分场写作和修正补丁各最多生成 3 次，携带上一版结构错误再请求；仍有结构错误则抛出异常，运行记为 `failed` |
-| GLM 请求重试 | 每次 `complete` 最多请求 3 次，处理 HTTP、输出截断、JSON 等错误；请求、响应、用量和错误保存到 `api/` |
+| LLM 请求重试 | 每次 `complete` 最多请求 3 次，处理 HTTP、输出截断、JSON 等错误；请求、响应、用量和错误保存到 `api/` |
 
 局部补丁只能替换已有镜头 ID，未指定的镜头保留；可更新集标题、梗概、开始/结束状态。通用合并函数支持列出所有原镜头的 `shot_order`，长剧还会按场次和编号检查合并结果。审核循环只因 `severity=error` 触发修正。
 
@@ -66,7 +66,7 @@ flowchart TD
 
 `scriptpipe` 没有单独的 `resume` 子命令，重新使用同一输出目录运行会复用阶段文件。短剧复用已有 `season.json` 和 `drafts`，重新进入审核；长剧会检查缓存的分集规划和分场结果，并在审核输入与保存的输入相同时复用对应审核。长剧支持 `--stop-after season|plans|drafts|review`，其中 `review` 在写完 `quality.json` 后、导出前停止。短剧导出到 `<output>/delivery`；长剧可用 `--delivery` 指定交接目录。
 
-代码依据：[入口](../scriptpipe/cli.py)、[短剧流程](../scriptpipe/pipeline.py)、[长剧流程](../scriptpipe/long_pipeline.py)、[通用检查](../scriptpipe/checks.py)、[长剧检查](../scriptpipe/long_checks.py)、[导出](../scriptpipe/export.py)、[GLM 请求](../scriptpipe/llm.py)。
+代码依据：[入口](../scriptpipe/cli.py)、[短剧流程](../scriptpipe/pipeline.py)、[长剧流程](../scriptpipe/long_pipeline.py)、[通用检查](../scriptpipe/checks.py)、[长剧检查](../scriptpipe/long_checks.py)、[导出](../scriptpipe/export.py)、[LLM 请求](../scriptpipe/llm.py)。
 
 ## imagepipe：图片槽位到实际资产
 
@@ -120,7 +120,7 @@ flowchart TD
 
 运行目录保存 `tasks.json`（最终 prompt、引用、seed、路径、配置）、`state.json`、`events.jsonl`、`originals/` 和 `report.json`。`imagepipe resume <运行目录>` 读取保存的计划和配置；再次 `run` 到已有 `tasks.json` 的目录也会复用它们，并核对包目录是否一致。所有生成任务 `completed` 且参考图复制无缺项时，报告的 `success` 才为 `true`。
 
-图片阶段写入资产与自身运行记录，不会重写剧本导出的 `overview.json.render_ready` 或图片清单中的 `pending_images` / `pending_image` 标记。交接时查看图片运行报告及槽位文件；视频入口会检查所引用的文件是否存在。
+图片阶段写入资产与自身运行记录，全剧目录保留文字导出的状态快照。指定 `--episodes ep01-ep10 --delivery <批次目录>` 时，只处理这些集的首帧及引用依赖，再复制成独立视频输入包；后续批次复用全剧目录中的已有图片。批次清单标记 `images_ready`；全剧仍有待修文字问题时保留相应状态。交接时查看图片运行报告及槽位文件；视频入口会检查所引用的文件是否存在。具体命令见 [分批运行](usage.md#全剧文本分批补图与交付)。
 
 代码依据：[入口](../imagepipe/cli.py)、[依赖计划](../imagepipe/plan.py)、[调度与恢复](../imagepipe/pipeline.py)、[接口](../imagepipe/client.py)、[图片交付](../imagepipe/delivery.py)、[配置模型](../imagepipe/models.py)。
 

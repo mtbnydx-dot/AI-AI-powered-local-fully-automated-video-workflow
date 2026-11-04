@@ -60,12 +60,13 @@ def merge_episode_repair(episode: dict, patch: dict) -> dict:
 
 async def run(source_path: Path, out: Path, client: GLMClient, *, episode_count: int = 12,
               repair_rounds: int = 2, production_config: Path | None = None,
-              notes_path: Path | None = None, review_reasoning_effort: str = "low") -> dict:
+              notes_path: Path | None = None, review_reasoning_effort: str | None = None) -> dict:
+    review_reasoning_effort = review_reasoning_effort or client.reasoning_effort
     out.mkdir(parents=True, exist_ok=True)
     state_file = out / "run.json"
     state = {"source": str(source_path.resolve()), "model": client.model,
              "endpoint": client.endpoint, "episode_count": episode_count,
-             "planning_effort": client.reasoning_effort, "writing_effort": "low",
+             "planning_effort": client.reasoning_effort, "writing_effort": client.reasoning_effort,
              "review_effort": review_reasoning_effort,
              "status": "running", "started_at": datetime.now(timezone.utc).isoformat()}
     if state_file.exists():
@@ -102,7 +103,7 @@ async def run(source_path: Path, out: Path, client: GLMClient, *, episode_count:
         else:
             season = await client.complete("season", prompt("short_season_plan"), {
                 "brief": brief, "source_text": source, "editor_notes": notes,
-            }, max_tokens=32768)
+            })
             write_json(season_file, season)
         plans = season.get("episodes", [])
         if len(plans) != episode_count or len({p["id"] for p in plans}) != episode_count:
@@ -116,7 +117,7 @@ async def run(source_path: Path, out: Path, client: GLMClient, *, episode_count:
             episode = await client.complete(plan["id"], prompt("short_episode_write"), {
                 "brief": brief, "source_text": source, "editor_notes": notes,
                 "season": season, "episode_plan": plan,
-            }, reasoning_effort="low")
+            })
             if episode.get("id") != plan["id"]:
                 raise ValueError(f"Episode ID differs from requested plan: {plan['id']}")
             write_json(destination, episode)
@@ -130,7 +131,7 @@ async def run(source_path: Path, out: Path, client: GLMClient, *, episode_count:
                 "brief": brief, "source_text": source, "editor_notes": notes,
                 "season": season, "episodes": [compact_episode(ep) for ep in episodes],
                 "structural_issues": issues,
-            }, max_tokens=32768, temperature=0.3, reasoning_effort=review_reasoning_effort)
+            }, temperature=0.3, reasoning_effort=review_reasoning_effort)
             write_json(out / "reviews" / f"review_{cycle}.json", review)
             reviews.append(review)
             combined = issues + review.get("issues", [])
@@ -152,7 +153,7 @@ async def run(source_path: Path, out: Path, client: GLMClient, *, episode_count:
                         {"id": ep["id"], "start_state": ep.get("start_state"),
                          "end_state": ep.get("end_state"), "synopsis": ep.get("synopsis")}
                         for ep in episodes],
-                }, reasoning_effort="low")
+                })
                 repaired = merge_episode_repair(episode, patch)
                 write_json(out / "drafts" / f"{episode['id']}.before_repair_{cycle}.json", episode)
                 write_json(out / "drafts" / f"{episode['id']}.json", repaired)

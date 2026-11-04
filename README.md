@@ -15,7 +15,7 @@ flowchart LR
 
 | 目录 | 内容 |
 | --- | --- |
-| `scriptpipe/` | GLM 剧本写作、检查、修正和结构化导出 |
+| `scriptpipe/` | Ark DeepSeek / GLM 剧本写作、检查、修正和结构化导出 |
 | `imagepipe/` | 图片依赖规划、在线任务调度与资产落盘 |
 | `videopipe/` | ComfyUI / Qwen 视频生产、媒体、音频与交付 |
 | [prompt/](prompt/README.md) | `script/`、`image/`、`videopipe/` 三组生产模板 |

@@ -12,14 +12,14 @@ source .venv/bin/activate
 python -m pip install -e '.[asr]'
 ```
 
-`scriptpipe` 使用环境变量或 `.env` 中的 `GLMKEY`，默认模型和 endpoint 见 [llm.py](../scriptpipe/llm.py)。`imagepipe` 使用 [配置](../configs/imagepipe.yaml) 的服务地址、`env_file` 和 `key_name`，默认键名 `QWEN-IMAGE`。本地视频服务准备见 [部署](deployment.md)。
+`scriptpipe` 默认使用 Ark `deepseek-v4.1-flash`、环境变量或 `.env` 中的 `DEEPSEEK-KEY`，endpoint 为 `https://ark.cn-beijing.volces.com/api/coding/v3`。请求显式开启 thinking；规划、写作、修复、审阅均继承 `--reasoning-effort high`。`--model glm-5.3` 自动选择 `GLMKEY`，也可通过 `--key-name` 指定。`--max-tokens` 默认 65536，包含思考与最终输出的预算。`imagepipe` 使用 [配置](../configs/imagepipe.yaml) 的服务地址、`env_file` 和 `key_name`，默认键名 `QWEN-IMAGE`。本地视频服务准备见 [部署](deployment.md)。
 
 ## 顺序运行
 
 ```bash
 # 长剧：原文 → 整季剧本和图片槽位；短剧去掉 --long-form
 scriptpipe --source /data/project/source.txt --notes /data/project/editor_notes.md \
-  --long-form --episodes 8 --output /data/runs/script \
+  --long-form --episodes 8 --episode-minutes 5 --output /data/runs/script \
   --delivery /data/season --production-config configs/b200.yaml
 
 # 补图：输入为含 image_slots.json 的整季或单集目录
@@ -38,7 +38,37 @@ videopipe collect /data/runs/video-season
 
 `--notes` 可省略。短剧交付到 `<output>/delivery/`；长剧可以指定 `--delivery`，也可用 `--stop-after season|plans|drafts|review` 在阶段结束时暂停。剧本续跑使用相同命令和输出目录，复用已存阶段；调整素材、创作 brief 或模板后用新输出目录开始，避免复用旧稿。
 
-图片的 `run` 遇到已有 `tasks.json` 会读取已存计划；目标图片存在即复用。图片完成状态见运行报告，导出包内的 `pending_images`、`render_ready` 仍是文字导出时的快照，图片执行器不会改写这些字段。视频入口按实际文件是否存在校验。
+图片的 `run` 遇到已有 `tasks.json` 会读取已存计划；目标图片存在即复用。全剧包内的状态字段保留文字导出时的快照；分批交付包在图片齐备后写入实际交付状态。视频入口按实际文件是否存在校验。
+
+## 全剧文本、分批补图与交付
+
+集数由 `--episodes` 决定，长剧每集目标时长由 `--episode-minutes` 决定。保留每场 12 镜、每镜 5.875 秒的既有流程，目标时长取最接近的整场数：5 分钟对应 4 场、48 镜、4 分 42 秒。以下 64 是调用参数示例，可按改编密度调整。
+
+```bash
+EPISODES=64
+scriptpipe --source /data/project/source.txt --notes /data/project/editor_notes.md \
+  --long-form --episodes "$EPISODES" --episode-minutes 5 \
+  --reasoning-effort high --review-reasoning-effort high \
+  --output runs/scriptpipe/my_drama --delivery projects/my_drama \
+  --production-config configs/b200.yaml
+
+imagepipe run projects/my_drama --episodes ep01-ep10 \
+  --config configs/imagepipe.yaml --output runs/imagepipe/my_drama/ep01-ep10 \
+  --delivery deliveries/剧本my_drama_ep01-ep10
+
+# 后续批次沿用同一个全剧目录及已经生成的参考图
+imagepipe run projects/my_drama --episodes ep11-ep20 \
+  --config configs/imagepipe.yaml --output runs/imagepipe/my_drama/ep11-ep20 \
+  --delivery deliveries/剧本my_drama_ep11-ep20
+
+videopipe run-season deliveries/剧本my_drama_ep01-ep10 --output runs/video/my_drama/ep01-ep10
+```
+
+`--episodes` 同时接受 `1-10`。只为选中集生成首帧及其所需的共享参考、场景锚点和依赖图；同一全剧目录中的人物、服装、场景和道具图直接复用。补图完成后，`--delivery` 导出仅含选中集的索引、剧本、配置和实际图片，保持原有 ID、prompt、seed 和图片内容。全剧 `season.json` / `season_bible.md` 随包保留，供后续衔接。
+
+`projects/my_drama` 保存全剧文本和长期复用的资产；`runs/scriptpipe`、`runs/imagepipe` 保存阶段记录；`deliveries/剧本my_drama_ep01-ep10` 是交给视频端的独立目录。`imagepipe resume runs/imagepipe/my_drama/ep01-ep10` 会续跑补图并完成同一批次交付。调整补图范围时使用对应的新运行目录。
+
+对于仍在连载的原文，可使用现有 `--notes` 明确当前素材的阶段终点、保留的悬念和改编取舍，使全剧规划沿用素材的实际范围。
 
 ## 单集、返工与批准
 

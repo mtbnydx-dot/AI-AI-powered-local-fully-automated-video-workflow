@@ -5,7 +5,7 @@
 ```mermaid
 flowchart LR
     SRC["原文 + notes"] --> SP["scriptpipe<br/>规划、写作、检查、修正"]
-    SP <-->|流式 JSON| GLM["在线 GLM"]
+    SP <-->|流式 JSON| LLM["Ark DeepSeek / GLM"]
     SP --> EXP["export.py"]
     EXP --> SEASON["season.json<br/>整季实体与风格"]
     EXP --> SLOTS["image_slots.json<br/>图片槽位与引用"]
@@ -33,8 +33,9 @@ flowchart LR
 | [scriptpipe/cli.py](../scriptpipe/cli.py) | 选择短剧 / 长剧，注入原文、notes、集数、并发和导出配置 |
 | [pipeline.py](../scriptpipe/pipeline.py)、[long_pipeline.py](../scriptpipe/long_pipeline.py) | 短剧按集写；长剧按场写，先分集再整季审核；缓存中间结果并合并局部补丁 |
 | [checks.py](../scriptpipe/checks.py)、[long_checks.py](../scriptpipe/long_checks.py) | ID / 引用、对白、语言、动作字段、场次与镜头分配、计划时长检查 |
-| [llm.py](../scriptpipe/llm.py) | GLM 流式请求、并发信号量、JSON 解析、请求/响应/用量记录与技术重试 |
+| [llm.py](../scriptpipe/llm.py) | LLM 流式请求、并发信号量、JSON 解析、请求/响应/用量记录与技术重试 |
 | [export.py](../scriptpipe/export.py) | 编译 H3 prompt、人物与资产 ID，导出单集包、图片清单和整季索引 |
+| [batch.py](../scriptpipe/batch.py) | 按集复制剧本和实际图片，保留全剧设定，生成可独立交接的批次包 |
 | [imagepipe/plan.py](../imagepipe/plan.py)、[models.py](../imagepipe/models.py) | 统一单集 / 整季槽位，计算引用依赖，选模板、模式、seed 与路径；检查循环和缺失引用 |
 | [imagepipe/pipeline.py](../imagepipe/pipeline.py) | 等待依赖、控制在途任务数、保存 job ID、续跑、共享图复制与报告 |
 | [imagepipe/client.py](../imagepipe/client.py)、[delivery.py](../imagepipe/delivery.py) | HTTP 提交/轮询/下载；Pillow 等比缩放和居中裁切，写 RGB PNG |

@@ -176,22 +176,21 @@ def check_scene(scene: dict, scene_plan: dict, episode_plan: dict, season: dict)
     return issues
 
 
-def check_long_season(episodes: list[dict], season: dict, minimum_seconds: float = 3600) -> list[dict]:
-    """Check final episode order, global ids and the strictly greater-than runtime."""
+def check_long_season(episodes: list[dict], season: dict, expected_shots_per_episode: int | None = None) -> list[dict]:
+    """Check final episode order, global ids and the configured shot layout."""
     issues = []
     if not isinstance(episodes, list):
         _issue(issues, "episodes_type", "Episodes must be a list.", suggested_fix="Supply the completed episodes in season order.")
         return issues
-    if not 5 <= len(episodes) <= 10:
-        _issue(issues, "season_episode_count", f"Season contains {len(episodes)} episodes; expected 5–10.",
-               suggested_fix="Use 5–10 complete episodes for this long-form season.")
+    if not episodes:
+        _issue(issues, "season_episode_count", "Season must contain at least one episode.",
+               suggested_fix="Deliver the completed episodes from the season plan.")
     expected_ids = [e.get("id") for e in season.get("episodes", []) if isinstance(e, dict)]
     actual_ids = [e.get("id") if isinstance(e, dict) else None for e in episodes]
     if actual_ids != expected_ids:
         _issue(issues, "season_episode_order", f"Episode ids/order {actual_ids!r} do not match the season outline {expected_ids!r}.",
                suggested_fix="Deliver every planned episode exactly once, in season.episodes order.")
     seen_episode_ids, seen_shot_ids, scene_owners = set(), set(), {}
-    total_seconds = 0.0
     for episode in episodes:
         if not isinstance(episode, dict):
             _issue(issues, "episode_type", "Each episode must be an object.", suggested_fix="Supply a complete episode object.")
@@ -205,6 +204,9 @@ def check_long_season(episodes: list[dict], season: dict, minimum_seconds: float
         shots = episode.get("shots", [])
         if not isinstance(shots, list):
             continue
+        if expected_shots_per_episode is not None and len(shots) != expected_shots_per_episode:
+            _issue(issues, "long_episode_shot_count", f"Episode has {len(shots)} shots; expected {expected_shots_per_episode}.", episode_id,
+                   suggested_fix="Deliver every planned scene and shot for the configured episode duration.")
         _shot_layout(shots, episode_id, 1, issues)
         for shot in shots:
             if not isinstance(shot, dict):
@@ -220,10 +222,4 @@ def check_long_season(episodes: list[dict], season: dict, minimum_seconds: float
                 if owner != episode_id:
                     _issue(issues, "duplicate_global_scene_id", f"Scene {scene_id!r} is also used by {owner}.", episode_id, shot_id,
                            "Use distinct scene ids across episodes; reuse location_id for the same physical set.")
-            duration = shot.get("duration")
-            if isinstance(duration, (int, float)) and not isinstance(duration, bool) and math.isfinite(duration) and duration > 0:
-                total_seconds += duration
-    if total_seconds <= minimum_seconds:
-        _issue(issues, "season_duration", f"Planned runtime is {total_seconds:g}s; it must exceed {minimum_seconds:g}s.",
-               suggested_fix="Add complete planned scenes; do not stretch individual shots beyond 5.875 seconds.")
     return issues
