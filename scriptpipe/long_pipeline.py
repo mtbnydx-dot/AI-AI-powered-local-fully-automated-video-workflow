@@ -26,7 +26,7 @@ async def collect(tasks):
 
 def story_evidence(episode: dict) -> dict:
     """A season reviewer needs every beat, but not repeated English art direction."""
-    fields = ("id", "scene_id", "location_id", "characters", "prop_ids",
+    fields = ("id", "scene_id", "location_id", "characters", "prop_ids", "duration",
               "beat_zh", "action_end_zh", "dialogue")
     return {**{key: value for key, value in episode.items() if key != "shots"},
             "shots": [{key: shot[key] for key in fields if key in shot} for shot in episode["shots"]]}
@@ -44,17 +44,17 @@ async def run_long(source_path: Path, out: Path, client: GLMClient, *,
     review_reasoning_effort = review_reasoning_effort or client.reasoning_effort
     out.mkdir(parents=True, exist_ok=True)
     delivery = delivery or out / "delivery"
-    shots_per_scene = 12
-    scene_count = max(1, math.floor(episode_minutes * 60 / (shots_per_scene * 5.875) + 0.5))
-    shots_per_episode = scene_count * shots_per_scene
     brief = {
         "fresh_creation": "Create a new long-form adaptation directly from the original novel. No old season plan or shot text is supplied or to be reused.",
         "episode_count": episode_count, "requested_episode_minutes": episode_minutes,
-        "scenes_per_episode": scene_count,
-        "shots_per_scene": shots_per_scene, "shots_per_episode": shots_per_episode,
-        "duration_per_shot": 5.875, "maximum_duration_seconds": 6,
-        "episode_duration_seconds": shots_per_episode * 5.875,
-        "season_duration_seconds": episode_count * shots_per_episode * 5.875,
+        "scene_count_policy": "Choose scenes from source-supported changes in physical location or continuous time block.",
+        "shot_count_policy": "Choose shot counts from dramatic progression and motivated camera coverage.",
+        "preferred_duration_seconds": 5, "maximum_duration_seconds": 10,
+        "maximum_requested_duration_seconds": 9.4,
+        "duration_rule": "Choose each duration from speech, action and reaction. About five seconds is a preference, not a fixed duration. Requests up to 9.4 seconds keep H3 frame rounding within ten seconds at 24fps.",
+        "target_episode_duration_seconds": episode_minutes * 60,
+        "target_season_duration_seconds": episode_count * episode_minutes * 60,
+        "runtime_policy": "The requested episode runtime is a target; source-supported events and natural pacing determine the actual runtime, scene count and shot count.",
         "format": "Naturalistic vertical drama with the source's setting and editor-approved style; portrait 576x1024, 24fps",
         "language": "Chinese script and exact Mandarin dialogue; English production, audio and image-slot descriptions",
         "scope": "Text and planned image slots only. No images/audio/video generation.",
@@ -136,7 +136,7 @@ async def run_long(source_path: Path, out: Path, client: GLMClient, *,
 
         async def plan_episode(plan):
             def validate(candidate):
-                issues = check_long_plan(candidate, season, plan, scene_count, shots_per_scene)
+                issues = check_long_plan(candidate, season, plan)
                 for field in ("title", "synopsis", "start_state", "end_state"):
                     if not isinstance(candidate.get(field), str) or not candidate[field].strip():
                         issues.append({"severity": "error", "code": "missing_episode_field",
@@ -175,7 +175,7 @@ async def run_long(source_path: Path, out: Path, client: GLMClient, *,
                                     for shot in read_json(out / "scenes" / plan["id"] / f"{scene_plan['id']}.json")["shots"]]
                 write_json(destination, episode)
             episodes.append(episode)
-        write_json(out / "checks" / "assembled.json", check_long_season(episodes, season, shots_per_episode))
+        write_json(out / "checks" / "assembled.json", check_long_season(episodes, season))
         if pause("drafts"):
             return state
 
@@ -213,7 +213,8 @@ async def run_long(source_path: Path, out: Path, client: GLMClient, *,
                 review = await reviewed(f"{episode['id']}_review_{cycle}", "long_episode_review",
                                         {**common, "season": season, "episode_plan": plan,
                                          "episode": compact_episode(episode)}, review_path)
-                issues = [{**i, "episode_id": episode["id"]} for i in check_episode(episode, season)
+                issues = [{**i, "episode_id": episode["id"]} for i in check_episode(
+                    episode, season, maximum_duration_seconds=10, maximum_dialogue_characters=None)
                           if not (i.get("code") == "shot_count" and i["severity"] == "warning")]
                 issues.extend({**issue, "episode_id": episode["id"]} for issue in review.get("issues", []))
                 errors = [issue for issue in issues if issue["severity"] == "error"]
@@ -249,7 +250,7 @@ async def run_long(source_path: Path, out: Path, client: GLMClient, *,
             local_reviews = [revised_reviews.get(review["episode_id"], review) for review in local_reviews]
             write_json(out / "episode_reviews.json", local_reviews)
 
-        checks = check_long_season(episodes, season, shots_per_episode)
+        checks = check_long_season(episodes, season)
         quality = {"status": "text_complete_images_pending", "structural_issues": checks,
                    "episode_reviews": local_reviews, "model_review": season_review,
                    "open_errors": [i for i in checks + season_review.get("issues", [])

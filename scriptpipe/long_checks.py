@@ -1,8 +1,6 @@
 """Deterministic checks for scene-by-scene long-form script production."""
 
-import math
-
-from .checks import DEFAULT_DURATION, check_episode
+from .checks import check_episode
 
 
 def _issue(issues, code, message, episode_id="", shot_id="", suggested_fix="", severity="error"):
@@ -57,7 +55,8 @@ def _episode_content(episode, season):
     """Preserve the existing checks without the short-episode length warning."""
     episode_id = episode.get("id", "")
     try:
-        issues = check_episode(episode, season)
+        issues = check_episode(episode, season, maximum_duration_seconds=10,
+                               maximum_dialogue_characters=None)
     except (TypeError, AttributeError) as exc:
         return [{
             "severity": "error", "code": "shot_structure", "episode_id": episode_id,
@@ -82,13 +81,9 @@ def _shot_layout(shots, episode_id, first_number, issues, scene_id=None):
         if scene_id is not None and shot.get("scene_id") != scene_id:
             _issue(issues, "shot_scene_id", f"Shot scene_id must be {scene_id!r}.", episode_id, str(shot_id),
                    "Use the enclosing scene_plan.id for every shot in this scene.")
-        duration = shot.get("duration")
-        if isinstance(duration, (int, float)) and not isinstance(duration, bool) and math.isfinite(duration) and 0 < duration <= 6 and duration != DEFAULT_DURATION:
-            _issue(issues, "long_shot_duration", f"Long-form shots require {DEFAULT_DURATION:g}s; got {duration:g}s.", episode_id, str(shot_id),
-                   "Set duration to 5.875 seconds (141 frames at 24 fps).")
 
 
-def check_long_plan(plan: dict, season: dict, episode_plan: dict, scene_count: int = 7, shots_per_scene: int = 12) -> list[dict]:
+def check_long_plan(plan: dict, season: dict, episode_plan: dict) -> list[dict]:
     """Check the episode's scene plan and its consecutive shot ranges."""
     issues = []
     episode_id = episode_plan.get("id", "")
@@ -103,14 +98,12 @@ def check_long_plan(plan: dict, season: dict, episode_plan: dict, scene_count: i
         _issue(issues, "unknown_episode", f"Episode {episode_id!r} is not in the season outline.", episode_id,
                suggested_fix="Use the matching season.episodes entry as episode_plan.")
     scenes = plan.get("scenes")
-    if not isinstance(scenes, list):
-        _issue(issues, "scenes_type", "Plan scenes must be a list.", episode_id,
-               suggested_fix=f"Return {scene_count} scene objects in story order.")
+    if not isinstance(scenes, list) or not scenes:
+        _issue(issues, "scenes_type", "Plan scenes must be a nonempty list.", episode_id,
+               suggested_fix="Return the planned scene objects in story order.")
         return issues
-    if len(scenes) != scene_count:
-        _issue(issues, "scene_count", f"Plan has {len(scenes)} scenes; expected {scene_count}.", episode_id,
-               suggested_fix=f"Plan exactly {scene_count} complete scenes.")
     seen = set()
+    first = 1
     for index, scene in enumerate(scenes):
         if not isinstance(scene, dict):
             _issue(issues, "scene_type", f"Scene {index + 1} must be an object.", episode_id,
@@ -125,8 +118,13 @@ def check_long_plan(plan: dict, season: dict, episode_plan: dict, scene_count: i
                    suggested_fix="Give each planned scene a distinct stable id.")
         else:
             seen.add(scene_id)
-        first = index * shots_per_scene + 1
-        last = first + shots_per_scene - 1
+        beats = scene.get("beats")
+        if not isinstance(beats, list) or not beats:
+            _issue(issues, "scene_beat_count", f"Scene {scene_id} needs a nonempty list of beats.", episode_id,
+                   suggested_fix="Plan one complete action/event beat for each numbered shot.")
+            _references(scene, season, episode_id, issues)
+            continue
+        last = first + len(beats) - 1
         anchor = scene.get("anchor_shot_number")
         if anchor is not None and (type(anchor) is not int or not first <= anchor <= last):
             _issue(issues, "scene_anchor", f"Scene {scene_id}: anchor must be a shot number from {first} to {last}.", episode_id,
@@ -134,11 +132,8 @@ def check_long_plan(plan: dict, season: dict, episode_plan: dict, scene_count: i
         if type(scene.get("first_shot_number")) is not int or type(scene.get("last_shot_number")) is not int or scene.get("first_shot_number") != first or scene.get("last_shot_number") != last:
             _issue(issues, "scene_shot_range", f"Scene {scene_id}: expected shot range {first}–{last}.", episode_id,
                    suggested_fix=f"Set first_shot_number={first} and last_shot_number={last}.")
-        beats = scene.get("beats")
-        if not isinstance(beats, list) or len(beats) != shots_per_scene:
-            _issue(issues, "scene_beat_count", f"Scene {scene_id} needs exactly {shots_per_scene} beats.", episode_id,
-                   suggested_fix="Plan one complete action/event beat for each numbered shot.")
         _references(scene, season, episode_id, issues)
+        first = last + 1
     return issues
 
 
@@ -176,8 +171,8 @@ def check_scene(scene: dict, scene_plan: dict, episode_plan: dict, season: dict)
     return issues
 
 
-def check_long_season(episodes: list[dict], season: dict, expected_shots_per_episode: int | None = None) -> list[dict]:
-    """Check final episode order, global ids and the configured shot layout."""
+def check_long_season(episodes: list[dict], season: dict) -> list[dict]:
+    """Check final episode order, global ids and consecutive shot numbering."""
     issues = []
     if not isinstance(episodes, list):
         _issue(issues, "episodes_type", "Episodes must be a list.", suggested_fix="Supply the completed episodes in season order.")
@@ -204,9 +199,6 @@ def check_long_season(episodes: list[dict], season: dict, expected_shots_per_epi
         shots = episode.get("shots", [])
         if not isinstance(shots, list):
             continue
-        if expected_shots_per_episode is not None and len(shots) != expected_shots_per_episode:
-            _issue(issues, "long_episode_shot_count", f"Episode has {len(shots)} shots; expected {expected_shots_per_episode}.", episode_id,
-                   suggested_fix="Deliver every planned scene and shot for the configured episode duration.")
         _shot_layout(shots, episode_id, 1, issues)
         for shot in shots:
             if not isinstance(shot, dict):

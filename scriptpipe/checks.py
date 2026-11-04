@@ -5,7 +5,6 @@ import re
 
 
 FPS = 24
-DEFAULT_DURATION = 141 / FPS
 _ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 _CHINESE = re.compile(r"[\u3400-\u9fff]")
 _UNFINISHED = re.compile(r"尚未|还未|未完成|动作未完|没来得及|刚要|正要|到一半|伸到一半|走到一半")
@@ -23,7 +22,8 @@ def spoken_length(text: str) -> int:
     return sum(character.isalnum() for character in text)
 
 
-def check_episode(episode: dict, season: dict) -> list[dict]:
+def check_episode(episode: dict, season: dict, *, maximum_duration_seconds: float = 6,
+                  maximum_dialogue_characters: int | None = 22) -> list[dict]:
     """Report concrete errors and editorial warnings; never contact a model."""
     issues: list[dict] = []
 
@@ -76,13 +76,13 @@ def check_episode(episode: dict, season: dict) -> list[dict]:
         if not valid_duration:
             issue("duration", "Duration must be a positive finite number.", shot_id)
         else:
-            if duration > 6:
-                issue("duration_limit", f"Planned duration {duration:g}s exceeds the 6s limit.", shot_id)
+            if duration > maximum_duration_seconds:
+                issue("duration_limit", f"Planned duration {duration:g}s exceeds the {maximum_duration_seconds:g}s limit.", shot_id)
             elif duration < 4:
                 issue("short_duration", f"Planned duration is only {duration:g}s; check the action and dialogue budget.", shot_id, "warning")
             rendered_duration = h3_frame_count(duration) / FPS
-            if rendered_duration > 6:
-                issue("h3_duration_limit", f"H3 rounds {duration:g}s to {rendered_duration:.3f}s; use 5.875s or less.", shot_id)
+            if rendered_duration > maximum_duration_seconds:
+                issue("h3_duration_limit", f"H3 rounds {duration:g}s to {rendered_duration:.3f}s; shorten the request to stay within {maximum_duration_seconds:g}s.", shot_id)
 
         cast = shot.get("characters", [])
         if not isinstance(cast, list):
@@ -157,11 +157,12 @@ def check_episode(episode: dict, season: dict) -> list[dict]:
                 issue("dialogue_language", "Dialogue must be Mandarin Chinese text.", shot_id)
             total_characters += spoken_length(text)
         if len(speakers) > 1:
-            issue("multiple_speakers", "Use at most one speaker in a shot lasting six seconds or less.", shot_id)
-        if total_characters > 22:
-            issue("dialogue_length", f"Shot has {total_characters} spoken characters; the hard limit is 22.", shot_id)
-        elif total_characters > 18:
-            issue("long_dialogue", f"Shot has {total_characters} spoken characters; prefer at most 18.", shot_id, "warning")
+            issue("multiple_speakers", "Use at most one speaker in a shot.", shot_id)
+        if maximum_dialogue_characters is not None:
+            if total_characters > maximum_dialogue_characters:
+                issue("dialogue_length", f"Shot has {total_characters} spoken characters; the hard limit is {maximum_dialogue_characters}.", shot_id)
+            elif total_characters > 18:
+                issue("long_dialogue", f"Shot has {total_characters} spoken characters; prefer at most 18.", shot_id, "warning")
         if total_characters and valid_duration and total_characters / 4 + 0.8 > duration:
             issue("dialogue_timing", f"{total_characters} characters need about {total_characters / 4 + 0.8:.2f}s including a short pause; shot allows {duration:g}s.", shot_id)
 

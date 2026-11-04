@@ -20,7 +20,7 @@ def main() -> None:
     parser.add_argument("--episodes", type=int, help="Default: 8 for long-form, otherwise 12")
     parser.add_argument("--long-form", action="store_true", help="Write the complete season in scene-sized calls")
     parser.add_argument("--episode-minutes", type=float, default=5,
-                        help="Long-form target per episode; rounded to whole 12-shot scenes (default: 5)")
+                        help="Long-form runtime target per episode; scene/shot counts follow the story (default: 5)")
     parser.add_argument("--delivery", type=Path, help="Long-form handoff directory, e.g. /data/season")
     parser.add_argument("--stop-after", choices=("season", "plans", "drafts", "review"), help="Save the selected long-form stage and exit")
     parser.add_argument("--concurrency", type=int, default=4)
