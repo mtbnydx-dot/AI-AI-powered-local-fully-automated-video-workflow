@@ -5,14 +5,16 @@
 
 # 首要目标
 
-* 解决审核指出的具体问题，同时保留面向中国大陆抖音／红果观众的短剧表达：充足的对白、内心独白、人物冲突和动作交互，推动观众继续观看。
+* 解决审核指出的具体问题，同时保留面向中国大陆抖音／红果观众的短剧表达：以持续、自然的对白和内心独白，以及人物交锋与情绪变化吸引视觉听觉注意力，推动观众继续观看。
 * 根据问题改写相关台词和动作，让人物诉求、对话衔接和局面变化更清楚，延续原文因果及已批准的改编方向。
-* 对白保留推进剧情所需的内容，delivery_en 按人物情绪与交锋节奏说明自然、连贯的表达方式。
+* 台词采用正常、自然的中文口语，完整展开人物想说的话和彼此回应。修补稀疏段落时，结合上下文补足提问、解释、试探、反驳、回应或真实的内心想法，delivery_en 说明自然语速下的情绪与交锋节奏。
 
 # 修改内容
 
 * 在现有镜头中完成修正，保持本集 ID、镜头 ID、场景归属、镜头数量和观看顺序。需要连带调整的相邻镜头一并修改，其余内容保持原样。
 * 根据剧情需要安排镜头中的对白、动作、反应和切镜。涉及台词、动作或节奏的问题时，可以同步调整 duration；时长取大于零且不超过 brief.maximum_requested_duration_seconds 的秒数。
+* 普通叙事镜头尽量让对白或独白按自然语速覆盖整个镜头，保留必要的呼吸、接话和反应时间。走路、取物、交接等动作可与说话同时进行；需要集中观看的细节特写、特定动作展示和有明确戏剧作用的短暂停顿保留无台词空间。
+* 人物数量和发言轮数按剧情需要确定，一个镜头可承载多人、多轮对话。同一段对话也可在现有相邻镜头间切换人物特写与反应，连续的发言按本镜实际听到的部分分配，切镜后自然接续。
 * 同步受影响的中英文剧情字段、首帧、画面、声音、dialogue 和 acceptance_en，让这些描述对应同一段表演。
 * 修正后的镜头承接前后的人物关系、知情情况、物品状态和空间布局，并使用整季注册的人物、服装、地点及道具 ID。
 * dialogue 按顺序记录实际台词，可包含多个人物、多轮发言；无发言时为空数组。text_zh 填写确切台词，language 指定英文语言名称，默认沿用 brief.dialogue_language；delivery_en 用英文描述发声表现。
@@ -34,6 +36,7 @@
 * acceptance_en 用英文列出影响剧情理解的关键可观察要求，可为空数组。action_complete 用布尔值记录切镜时动作是否完成。
 * reference_priority 按本镜头的重要性排列人物、地点或道具 ID。配乐沿用 brief.non_diegetic_music，单镜配乐可用 non_diegetic_music_en 描述。剧情文字、字幕和水印按 brief.on_screen_text 与编辑要求处理。
 * shots 数组中的每个完整替换镜头采用以下结构：
+* 示例展示字段类型；人物数量、发言轮数和 duration 按实际剧情与表演需要确定。
 
 ```json
 {
@@ -41,10 +44,10 @@
   "scene_id": "ep01_scene01",
   "location_id": "registered_location_id",
   "time_of_day": "morning",
-  "characters": [{"id": "registered_character_id", "wardrobe_id": "registered_wardrobe_id"}],
+  "characters": [{"id": "registered_character_id", "wardrobe_id": "registered_wardrobe_id"}, {"id": "another_registered_character_id", "wardrobe_id": "another_registered_wardrobe_id"}],
   "prop_ids": ["registered_prop_id"],
-  "reference_priority": ["registered_prop_id", "registered_character_id", "registered_location_id"],
-  "duration": 5.0,
+  "reference_priority": ["registered_prop_id", "registered_character_id", "another_registered_character_id", "registered_location_id"],
+  "duration": 8.0,
   "beat_zh": "用中文描述具体的剧情推进",
   "action_start_zh": "用中文描述可观察的起始状态",
   "action_end_zh": "用中文描述切镜时的可观察状态",
@@ -53,7 +56,11 @@
   "visual_en": "用英文描述本镜头中的动作、发言和反应",
   "camera_en": "用英文描述构图和摄影指示",
   "soundscape_en": "用英文描述相容的环境声和拟音",
-  "dialogue": [{"speaker_id": "registered_character_id", "text_zh": "具体台词", "language": "Chinese", "delivery_en": "用英文描述发声表现要求", "voiceover": false}],
+  "dialogue": [
+    {"speaker_id": "registered_character_id", "text_zh": "人物甲完整、自然的口语台词", "language": "Chinese", "delivery_en": "用英文描述人物甲的发声表现", "voiceover": false},
+    {"speaker_id": "another_registered_character_id", "text_zh": "人物乙自然承接上文的回应", "language": "Chinese", "delivery_en": "用英文描述人物乙接话时的情绪与节奏", "voiceover": false},
+    {"speaker_id": "registered_character_id", "text_zh": "人物甲针对回应继续说出的台词", "language": "Chinese", "delivery_en": "用英文描述人物甲继续交锋时的发声表现", "voiceover": false}
+  ],
   "first_frame_prompt_en": "用英文描述准确的起始静态画面",
   "acceptance_en": []
 }

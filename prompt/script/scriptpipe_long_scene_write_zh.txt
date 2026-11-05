@@ -7,21 +7,26 @@
 
 # 首要目标
 
-* 以吸引观众继续观看为首要目标，通过高密度对白、内心独白、人物冲突和动作交互快速推进剧情。
+* 以持续吸引观众的视觉听觉注意力为首要目标，通过自然承接的对白、内心独白、人物交锋和情绪变化推动观众继续观看。
+* 台词采用正常、自然的中文口语，完整展开人物想说的话和彼此回应。用持续的表达、交锋与情绪变化形成刺激，让观众跟随人物经历事件。
 * 按场景计划展开人物交锋，将台词写得口语化、有情绪、符合人物身份，让相邻发言彼此承接，持续推动人物选择和局面变化。
 * 将角色心理写成观众能听到的内心独白，配合人物的表情和动作，让观众理解其真实想法与处境。
 * 将关键剧情落实到实际对白和画面动作中，保留原文因果、整季设定及已批准的改编要求。
 
 # 镜头脚本
 
-* 按 scene_plan.beats 展开剧情，落实计划中的发言意图、信息和动作。根据对话与表演需要拆分或合并镜头，完善自然口语台词。
+* 按 scene_plan.beats 展开剧情，落实计划中的发言意图、信息和动作，把简略的发言展开为完整、自然承接的对话过程，再根据表演需要拆分或合并镜头。
 * 写清每个镜头中的人物对话、行动和反应，以及镜头之间如何衔接。构图、运镜、打断和切镜由剧情需要决定；使用内部剪辑时在 visual_en 和 camera_en 中交代。
-* duration 根据台词、动作和反应所需时间确定，取大于零且不超过 brief.maximum_requested_duration_seconds 的秒数。
+* 一个镜头可承载多人、多轮对话，同一段对话也可跨越不同人物的特写和反应镜头。切到倾听者或物品时，可继续保留当前说话者的画外发言；每镜记录该时段实际听到的台词，切镜后自然接续。
+* duration 根据自然语速下的台词、同时发生的动作和必要反应确定，取大于零且不超过 brief.maximum_requested_duration_seconds 的秒数。较长的交锋通过连续镜头完整呈现。
 * beat_zh 说明本镜头在场景中的作用，action_start_zh 和 action_end_zh 说明开始与结束状态，action_complete 用布尔值记录切镜时主要动作是否完成，cut_reason_zh 说明此处转向下一镜头的原因。
 
 # 对白、独白与声音
 
-* dialogue 按发言顺序记录实际台词，可包含多个人物、多轮发言；无发言时使用空数组。
+* 以持续吸引观众的视觉听觉注意力为首要目标，可以尽可能丰富。
+* 普通叙事镜头尽量都有对白或内心独白，并让台词按自然语速尽量覆盖整个镜头，保留必要的呼吸、接话和反应时间。走路、取物、交接和观察等动作可与说话同时进行。
+* 无台词空间用于需要集中观看的细节特写、特定动作展示或有明确戏剧作用的短暂停顿，动作与切镜描述应体现其作用。
+* dialogue 按发言顺序记录实际台词，人物数量和发言轮数按剧情需要确定；无发言时使用空数组。
 * text_zh 填写确切台词，language 使用英文语言名称，默认沿用 brief.dialogue_language。delivery_en 用英文说明符合人物情绪和交锋节奏的发声方式。
 * 画内人物说话时设置 voiceover=false，说话者列入 characters，并在画面描述中体现说话状态。
 * 内心独白或画外发言设置 voiceover=true，对应人物在该段发言期间保持画外发声的表现。在 visual_en 和 delivery_en 中说明是仅观众听见的内心想法，还是场内人物也能听见的画外发言，延续相应的知情状态。
@@ -44,7 +49,7 @@
 * episode_id 和 scene_id 使用指定值。shots 按观看顺序排列，每镜使用场景内唯一的 ASCII ID，例如 ep01_scene01_s001；合并时会统一编为 ep01_s001。anchor_shot_id 指向本次输出中适合作为空间参考的镜头。
 * 叙事字段使用中文，text_zh 使用该句指定的语言，所有 _en 字段用英文描述，剧情需要的原文文字可直接引用。
 * time_of_day 使用场景指定的 dawn、morning、afternoon、dusk、evening 或 night。
-* characters、prop_ids 和 dialogue 根据实际内容填写，可为空数组。示例中的镜头数量和 duration 仅展示类型。
+* characters、prop_ids 和 dialogue 根据实际内容填写，可为空数组。示例展示字段类型；人物数量、发言轮数、镜头数量和 duration 按实际剧情与表演需要确定。
 
 ```json
 {
@@ -57,10 +62,10 @@
       "scene_id": "ep01_scene01",
       "location_id": "registered_location_id",
       "time_of_day": "morning",
-      "characters": [{"id": "registered_character_id", "wardrobe_id": "registered_wardrobe_id"}],
+      "characters": [{"id": "registered_character_id", "wardrobe_id": "registered_wardrobe_id"}, {"id": "another_registered_character_id", "wardrobe_id": "another_registered_wardrobe_id"}],
       "prop_ids": ["registered_prop_id"],
-      "reference_priority": ["registered_prop_id", "registered_character_id", "registered_location_id"],
-      "duration": 4.0,
+      "reference_priority": ["registered_prop_id", "registered_character_id", "another_registered_character_id", "registered_location_id"],
+      "duration": 8.0,
       "beat_zh": "用中文描述镜头在场景中的作用",
       "action_start_zh": "用中文描述可观察的起始状态",
       "action_end_zh": "用中文描述切镜时的可观察状态",
@@ -69,7 +74,11 @@
       "visual_en": "用英文描述从起始帧自然延续的可观察动作和反应",
       "camera_en": "用英文描述景别、角度、构图和摄影指示",
       "soundscape_en": "用英文描述环境声和拟音",
-      "dialogue": [{"speaker_id": "registered_character_id", "text_zh": "具体台词", "language": "Chinese", "delivery_en": "用英文描述发声表现要求", "voiceover": false}],
+      "dialogue": [
+        {"speaker_id": "registered_character_id", "text_zh": "人物甲完整、自然的口语台词", "language": "Chinese", "delivery_en": "用英文描述人物甲的发声表现", "voiceover": false},
+        {"speaker_id": "another_registered_character_id", "text_zh": "人物乙自然承接上文的回应", "language": "Chinese", "delivery_en": "用英文描述人物乙接话时的情绪与节奏", "voiceover": false},
+        {"speaker_id": "registered_character_id", "text_zh": "人物甲针对回应继续说出的台词", "language": "Chinese", "delivery_en": "用英文描述人物甲继续交锋时的发声表现", "voiceover": false}
+      ],
       "first_frame_prompt_en": "用英文自包含地描述实际开始时刻的静态图像",
       "acceptance_en": []
     }
