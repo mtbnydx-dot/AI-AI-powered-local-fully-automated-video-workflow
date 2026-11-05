@@ -14,7 +14,7 @@ from pathlib import Path
 import httpx
 
 from .client import ImageClient
-from .delivery import deliver_image
+from .delivery import deliver_original
 from .models import CopyTask, ImageConfig, ImagePlan, ImageTask
 
 
@@ -58,6 +58,9 @@ class ImagePipeline:
         record = self.state["tasks"][task.asset_id]
         target = Path(task.target_path)
         if target.is_file():
+            original = self.run_dir / "originals" / f"{task.asset_id}.png"
+            if original.is_file():
+                record.update(await asyncio.to_thread(deliver_original, original, target))
             record.update(status="completed", reused=not bool(record.get("completed_at") or record.get("job_id")),
                           path=str(target))
             self._event("reused", task.asset_id)
@@ -82,10 +85,9 @@ class ImagePipeline:
             await self._generate_gpt(task, record, original)
         else:
             await self._generate_qwen(task, record, original)
-        generation = self.config.generation
         delivery_started = time.time()
         dimensions = await asyncio.to_thread(
-            deliver_image, original, Path(task.target_path), generation.width, generation.height, generation.resize_mode,
+            deliver_original, original, Path(task.target_path),
         )
         finished = time.time()
         record.update(

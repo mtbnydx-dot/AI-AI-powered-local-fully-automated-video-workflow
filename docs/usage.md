@@ -64,9 +64,9 @@ max_attempts: 3
 
 时长上限由部署工作流能力决定，请求上限按 `frame_multiple/frame_offset` 和帧率计算。`max_attempts` 为每镜生成预算，可设置任意正整数；`upscale_factor` 为正整数，默认 2。单句 `dialogue[].language` 和单镜 `non_diegetic_music_en` 可指定各自语言和配乐。
 
-GPT 默认参数为 `quality: max`、`complexity: high`、`native_width/height: 1152/2048`，输出单张不透明 PNG；交付 `width/height` 为 720/1280。HTTP 并发和在途窗口均为 2，请求超时 900 秒。`api.max_reference_images` 默认 GPT 16、Qwen 10；GPT 输入支持 PNG/JPEG/WebP，每张小于 50 MB，prompt 最长 32000 字符。GPT 请求使用 generations 或 edits 接口，省略 Qwen 的 steps/seed 及旧模型的 input_fidelity。每次生成请求调用一次，失败记录后可用 resume 续跑。
+GPT 默认参数为 `quality: max`、`complexity: high`、`native_width/height: 1152/2048`，输出单张不透明 PNG；交付直接复制 API 原图，保留原始尺寸与文件内容。HTTP 并发和在途窗口均为 2，请求超时 900 秒。`api.max_reference_images` 默认 GPT 16、Qwen 10；GPT 输入支持 PNG/JPEG/WebP，每张小于 50 MB，prompt 最长 32000 字符。GPT 请求使用 generations 或 edits 接口，省略 Qwen 的 steps/seed 及旧模型的 input_fidelity。每次生成请求调用一次，失败记录后可用 resume 续跑。
 
-同一 GPT 运行内的后续任务优先使用 `originals/` 中的原生参考图；已有资产只有交付图时使用交付图。`generation.resize_mode` 可选 `crop`（中心裁切，默认）或 `pad`（等比缩放留边）。`continuity.auto_scene_anchors` 控制自动空间参考；`continuity.reference_priority` 可按首帧资产 ID 指定参考资产优先顺序。剧本和图像描述决定可见人物、背景群众、姿态与构图。
+同一 GPT 运行内的后续任务优先使用 `originals/` 中的原生参考图；已有资产只有交付图时使用交付图。GPT 和 Qwen 均原样交付；续跑时会用已保存原图恢复旧的缩放交付图。`continuity.auto_scene_anchors` 控制自动空间参考；`continuity.reference_priority` 可按首帧资产 ID 指定参考资产优先顺序。剧本和图像描述决定可见人物、背景群众、姿态与构图。
 
 ## 全剧文本、分批补图与交付
 
@@ -143,7 +143,7 @@ season/
 
 旧包的 `reference_images` 仍可读取：第一张映射为首帧，其余为审核参考。旧 `negative_prompt` 在创建视频快照时合入有效 prompt 一次。新包直接提供完整 prompt。自定义 workflow 路径相对配置文件解析。
 
-视频 `shots[].width/height` 控制生成画布，`media.width/height` 控制统一输出基准，再乘 `upscale_factor`。剧本导出读取制作配置的 `media.width/height/fps`，同时写入镜头包和单集配置。默认 B200 为 576×1024、24fps，2 倍超分对应交付 1152×2048。图片配置默认 720×1280，作为输入参考时由视频 workflow 处理。
+视频 `shots[].width/height` 控制生成画布，`media.width/height` 控制统一输出基准，再乘 `upscale_factor`。剧本导出读取制作配置的 `media.width/height/fps`，同时写入镜头包和单集配置。默认 B200 为 576×1024、24fps，2 倍超分对应交付 1152×2048。GPT 图片默认 1152×2048 原样交付，作为输入参考时由视频 workflow 处理。
 
 ## 到哪里查看运行结果
 

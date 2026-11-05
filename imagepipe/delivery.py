@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 from PIL import Image
@@ -35,4 +36,17 @@ def deliver_image(original: Path, target: Path, width: int, height: int, resize_
         "resized": resized,
         "mode": "RGB",
         "resize_mode": resize_mode,
+    }
+
+
+def deliver_original(original: Path, target: Path) -> dict:
+    with Image.open(original) as source:
+        width, height = source.size
+        mode = source.mode
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(original, target)
+    return {
+        "source_size": [width, height], "output_size": [width, height],
+        "crop_box": [0, 0, width, height], "resized": False,
+        "mode": mode, "resize_mode": "original",
     }

@@ -86,7 +86,7 @@ flowchart TD
     P -->|GPT，默认| G["复用已保存原图<br/>或等待 generations / edits 返回"]
     G -->|成功| G1["保存 base64 原图、request ID 和 usage"]
     G -->|请求异常| I11
-    G1 --> D["按交付尺寸缩放 / 裁切为 RGB PNG"]
+    G1 --> D["原文件复制交付"]
     P -->|Qwen| I8["恢复已有 job_id<br/>或提交并保存 job_id"]
     I8 --> I9["轮询远端任务"]
     I9 -->|排队或执行中| I9
@@ -125,7 +125,7 @@ GPT 默认 HTTP 并发和在途窗口均为 2，请求超时 900 秒。一个任
 
 Qwen 的 HTTP 并发为 16、在途窗口为 64、轮询间隔为 5 秒。远端任务 `failed` / `cancelled` 时清除 job ID，在 `max_attempts`（默认 3）内重新提交；查询、结果读取和下载另有 HTTP 重试。提交异常会记录为任务失败。存在 job ID 时续跑继续查询该任务。
 
-图片交付尺寸由 `generation.width/height` 决定，默认 720×1280。GPT Image 2.6 Sunburst 使用 `quality=max`、`complexity=high`，原生尺寸由 `native_width/native_height` 设置，默认 1152×2048；prompt 画布同步使用原生尺寸。Qwen 按交付宽高向上对齐 32 像素且至少为 256，默认请求 736×1280，保留 steps/seed。原图保存后，交付器按 `generation.resize_mode` 处理：`crop` 居中裁切，`pad` 等比缩放并留黑边，统一保存 RGB PNG。图片尺寸与视频镜头的生成画布分别配置。
+图片按 API 返回尺寸原样交付。GPT Image 2.6 Sunburst 使用 `quality=max`、`complexity=high`，原生尺寸由 `native_width/native_height` 设置，默认 1152×2048；prompt 画布同步使用原生尺寸。Qwen 按 `generation.width/height` 向上对齐 32 像素且至少为 256，默认请求 736×1280，保留 steps/seed。原图保存后，交付器直接复制文件，保留像素、色彩模式和元数据；续跑时用已保存原图恢复旧的缩放交付图。图片尺寸与视频镜头的生成画布分别配置。
 
 运行目录保存 `tasks.json`（最终 prompt、引用、seed、路径、后端及配置）、`state.json`、`events.jsonl`、`originals/` 和 `report.json`。seed 仅随 Qwen 请求发送。`imagepipe resume <运行目录>` 读取保存的计划和配置，旧记录按 Qwen 恢复；再次 `run` 到已有 `tasks.json` 的目录也会复用它们，并核对后端、包目录和集范围。所有生成任务 `completed` 且参考图复制无缺项时，报告的 `success` 才为 `true`。
 

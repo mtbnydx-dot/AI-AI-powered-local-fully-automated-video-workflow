@@ -102,8 +102,9 @@ class ImagePipelineTests(unittest.TestCase):
             self.assertTrue(reference_request["parent_exists"])
             self.assertEqual(reference_request["images"], [parent.read_bytes()])
             for path in (parent, child, copied):
+                self.assertEqual(path.read_bytes(), server.image)
                 with Image.open(path) as image:
-                    self.assertEqual((image.size, image.mode), ((18, 32), "RGB"))
+                    self.assertEqual((image.size, image.mode), ((96, 160), "RGBA"))
             self.assertEqual(copied.read_bytes(), parent.read_bytes())
             self.assertEqual((run_dir / "originals" / "parent.png").read_bytes(), server.image)
 

@@ -11,9 +11,6 @@ generation:
   complexity: high
   native_width: 1152
   native_height: 2048
-  width: 720
-  height: 1280
-  resize_mode: crop  # pad preserves the full composition with letterboxing.
 scheduler:
   http_concurrency: 2
   max_active_jobs: 2

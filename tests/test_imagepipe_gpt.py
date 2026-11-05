@@ -91,6 +91,7 @@ class GPTImagePipelineTests(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             report = asyncio.run(run(plan, self.config, run_dir))
             saved_plan, saved_config = load_run(run_dir)
+            Image.new("RGB", (18, 32), "red").save(targets["identity"])
             targets["wardrobe"].unlink()
             resumed = asyncio.run(run(saved_plan, saved_config, run_dir))
         self.assertTrue(report["success"])
@@ -112,8 +113,9 @@ class GPTImagePipelineTests(unittest.TestCase):
             self.assertNotIn("seed", request["fields"])
             self.assertNotIn("steps", request["fields"])
         for path in [*targets.values(), copied]:
+            self.assertEqual(path.read_bytes(), self.server.image)
             with Image.open(path) as image:
-                self.assertEqual((image.size, image.mode), ((18, 32), "RGB"))
+                self.assertEqual((image.size, image.mode), ((96, 160), "RGB"))
         records = json.loads((run_dir / "state.json").read_text())["tasks"]
         self.assertEqual(records["frame"]["request_id"], "request-3")
         self.assertEqual(records["frame"]["usage"]["output_tokens"], 200)

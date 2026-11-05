@@ -23,7 +23,6 @@ class GenerationConfig(BaseModel):
     steps: int = Field(default=20, gt=0)
     width: int = Field(default=720, gt=0)
     height: int = Field(default=1280, gt=0)
-    resize_mode: Literal["crop", "pad"] = "crop"
     seed_base: int = 20261101
 
 
