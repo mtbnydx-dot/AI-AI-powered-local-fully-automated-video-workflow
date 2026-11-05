@@ -39,7 +39,7 @@ videopipe run-season /data/season --output /data/runs/video-season
 videopipe collect /data/runs/video-season
 ```
 
-模型请求默认并发 15，可通过 `--concurrency` 覆盖。`--notes` 可省略。短剧交付到 `<output>/delivery/`；长剧可以指定 `--delivery`，也可用 `--stop-after season|plans|drafts|review` 在阶段结束时暂停。剧本续跑使用相同命令和输出目录，复用已存阶段；调整素材、创作 brief 或模板后用新输出目录开始，避免复用旧稿。
+模型请求默认并发 20，可通过 `--concurrency` 覆盖。当前 DeepSeek 配额为 5,000,000 TPM，每 1,000,000 TPM 允许并发 5，最大并发 25，默认取其 80%。`--notes` 可省略。短剧交付到 `<output>/delivery/`；长剧可以指定 `--delivery`，也可用 `--stop-after season|plans|drafts|review` 在阶段结束时暂停。剧本续跑使用相同命令和输出目录，复用已存阶段；调整素材、创作 brief 或模板后用新输出目录开始，避免复用旧稿。
 
 图片的 `run` 遇到已有 `tasks.json` 会读取已存计划；目标图片存在即复用。默认运行目录为 `runs/imagepipe/<包名>/<provider>/`，按集运行再追加集范围。切换后端时使用对应运行目录；`resume` 使用原记录的后端，兼容旧 Qwen 任务。`--config` 可指定对应后端的自定义 YAML，与显式 `--provider` 保持一致。全剧包内的状态字段保留文字导出时的快照；分批交付包在图片齐备后写入实际交付状态。视频入口按实际文件是否存在校验。
 

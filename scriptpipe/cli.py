@@ -24,7 +24,7 @@ def main() -> None:
     parser.add_argument("--delivery", type=Path, help="Long-form handoff directory, e.g. /data/season")
     parser.add_argument("--stop-after", choices=("season", "plans", "drafts", "review"), help="Save the selected long-form stage and exit")
     parser.add_argument("--concurrency", type=int, default=DEFAULT_CONCURRENCY,
-                        help="Maximum simultaneous model requests (default: 15)")
+                        help=f"Maximum simultaneous model requests (default: {DEFAULT_CONCURRENCY})")
     parser.add_argument("--repair-rounds", type=int, default=2)
     parser.add_argument("--reasoning-effort", choices=("low", "high", "max"), default="high")
     parser.add_argument("--review-reasoning-effort", choices=("low", "high", "max"),

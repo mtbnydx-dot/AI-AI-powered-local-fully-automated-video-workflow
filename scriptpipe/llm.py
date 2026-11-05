@@ -16,7 +16,7 @@ import httpx
 DEFAULT_ENDPOINT = "https://ark.cn-beijing.volces.com/api/coding/v3"
 DEFAULT_MODEL = "deepseek-v4.1-flash"
 DEFAULT_KEY_NAME = "DEEPSEEK-KEY"
-DEFAULT_CONCURRENCY = 15
+DEFAULT_CONCURRENCY = 20
 
 
 def write_json(path: Path, value: Any) -> None:
