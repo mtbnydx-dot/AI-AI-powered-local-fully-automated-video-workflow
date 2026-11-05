@@ -9,6 +9,6 @@ Target outfit:
 Reference assignments, in upload order:
 {reference_guide}
 
-Show this one person standing naturally against a plain neutral background, with the full outfit visible and the face clear. Use the identity portrait for facial structure and the target description for the complete outfit, including its dominant visible colors, materials, headwear, hair arrangement and accessories. Replace the portrait's incidental clothing with that outfit; a material or costume category does not override an explicitly specified color. Keep the head and garment hem inside the frame with a little margin. Light the person evenly so garment details and facial features remain legible.
+Use the pose, framing and setting specified in the description. The default is a natural standing view against a neutral background, showing the outfit and face clearly. Use the identity portrait for facial structure and the target description for the complete outfit, including its dominant visible colors, materials, headwear, hair arrangement and accessories. Replace the portrait's incidental clothing with that outfit; a material or costume category does not override an explicitly specified color. Keep the head and garment hem inside the frame with a little margin. Use the described lighting, with even illumination as the default for clear garment details and facial features.
 
-Deliver one {width} by {height} image of the dressed person, without a story setting, multiple views, panels or watermark.
+Deliver one {width} by {height} image of the dressed person.

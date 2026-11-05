@@ -66,6 +66,10 @@ def validate_plan(package: ScriptPackage, config: PipelineConfig) -> None:
                 classes = [node["class_type"] for node in graph.values()]
     if config.generator != "comfyui":
         return
+    for shot in package.shots:
+        duration = config.comfyui.frame_count(shot.duration, shot.fps) / shot.fps
+        if duration > config.comfyui.maximum_duration_seconds:
+            raise ValueError(f"Shot {shot.id}: rounded duration {duration:g}s exceeds configured maximum_duration_seconds={config.comfyui.maximum_duration_seconds:g}")
     workflow = config.comfyui.workflow
     native_h3 = workflow is None or any(name.startswith("MiniMaxH3") for name in classes)
     if native_h3:

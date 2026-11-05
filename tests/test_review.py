@@ -128,6 +128,8 @@ class ReviewTests(unittest.TestCase):
             {"passed": False, "summary": "Possibly different", "issues": [{
                 "shot_id": "s1", "category": "generation", "message": "Identity may differ but evidence is unclear"}]},
             {"passed": True, "summary": "Acceptable", "issues": [], "warnings": ["Minor cosmetic variation"]},
+            {"passed": True, "summary": "Acceptable", "issues": [{
+                "shot_id": "s1", "category": "editing", "message": "A different framing might work"}]},
         ]
         for index, decision in enumerate(decisions):
             with self.subTest(decision=decision):
@@ -150,8 +152,6 @@ class ReviewTests(unittest.TestCase):
                 {"shot_id": "missing", "category": "generation", "message": "Defect"}]},
             {"passed": False, "summary": "Bad", "issues": [
                 {"category": "generation", "message": "Defect"}]},
-            {"passed": True, "summary": "Bad", "issues": [
-                {"shot_id": "s1", "category": "generation", "message": "Defect"}]},
             {"passed": "true", "summary": "Bad", "issues": []},
         ]
         for index, decision in enumerate(cases):
@@ -163,6 +163,15 @@ class ReviewTests(unittest.TestCase):
                 self.assertFalse(result.passed)
                 self.assertTrue((directory / "error.txt").is_file())
                 self.assertFalse(json.loads((directory / "result.json").read_text())["available"])
+
+    def test_supported_issues_determine_passed_even_when_model_flag_disagrees(self):
+        self.set_response({"passed": True, "summary": "Subject missing", "issues": [{
+            "shot_id": "s1", "category": "generation", "message": "The required subject is missing", "timestamps": [0.125],
+        }]})
+        result = self.reviewer.review(self.video, shots=[self.shot], scope="shot", output_dir=self.output)
+        self.assertTrue(result.available)
+        self.assertFalse(result.passed)
+        self.assertEqual(len(result.issues), 1)
 
     def test_truncation_and_non_json_are_errors(self):
         for index, finish_reason in enumerate(["length", "stop"]):

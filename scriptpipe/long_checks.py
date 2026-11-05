@@ -51,12 +51,11 @@ def _references(scene, season, episode_id, issues):
                        suggested_fix="Use a prop id registered in season.props.")
 
 
-def _episode_content(episode, season):
-    """Preserve the existing checks without the short-episode length warning."""
+def _episode_content(episode, season, config):
+    """Attach episode context to the shared field and reference checks."""
     episode_id = episode.get("id", "")
     try:
-        issues = check_episode(episode, season, maximum_duration_seconds=10,
-                               maximum_dialogue_characters=None)
+        issues = check_episode(episode, season, config=config)
     except (TypeError, AttributeError) as exc:
         return [{
             "severity": "error", "code": "shot_structure", "episode_id": episode_id,
@@ -66,7 +65,7 @@ def _episode_content(episode, season):
     return [{
         **issue, "episode_id": episode_id,
         "suggested_fix": issue.get("suggested_fix", "Correct the reported shot field using the canonical season references and the planned action."),
-    } for issue in issues if not (issue["code"] == "shot_count" and issue["severity"] == "warning")]
+    } for issue in issues]
 
 
 def _shot_layout(shots, episode_id, first_number, issues, scene_id=None):
@@ -74,8 +73,8 @@ def _shot_layout(shots, episode_id, first_number, issues, scene_id=None):
         if not isinstance(shot, dict):
             continue  # check_episode reports the malformed shot.
         shot_id = shot.get("id", "")
-        expected_id = f"{episode_id}_s{first_number + offset:03d}"
-        if shot_id != expected_id:
+        expected_id = f"{episode_id}_s{first_number + offset:03d}" if first_number is not None else None
+        if expected_id is not None and shot_id != expected_id:
             _issue(issues, "shot_number", f"Expected shot id {expected_id}, got {shot_id!r}.", episode_id, str(shot_id),
                    f"Set this shot id to {expected_id}; preserve chronological list order.")
         if scene_id is not None and shot.get("scene_id") != scene_id:
@@ -84,7 +83,7 @@ def _shot_layout(shots, episode_id, first_number, issues, scene_id=None):
 
 
 def check_long_plan(plan: dict, season: dict, episode_plan: dict) -> list[dict]:
-    """Check the episode's scene plan and its consecutive shot ranges."""
+    """Check references and estimated shot ranges in the episode plan."""
     issues = []
     episode_id = episode_plan.get("id", "")
     if not isinstance(plan, dict):
@@ -121,23 +120,25 @@ def check_long_plan(plan: dict, season: dict, episode_plan: dict) -> list[dict]:
         beats = scene.get("beats")
         if not isinstance(beats, list) or not beats:
             _issue(issues, "scene_beat_count", f"Scene {scene_id} needs a nonempty list of beats.", episode_id,
-                   suggested_fix="Plan one complete action/event beat for each numbered shot.")
+                   suggested_fix="Write the scene's dialogue and action developments in viewing order.")
             _references(scene, season, episode_id, issues)
             continue
-        last = first + len(beats) - 1
+        last = scene.get("last_shot_number")
+        if type(scene.get("first_shot_number")) is not int or scene["first_shot_number"] != first or type(last) is not int or last < first:
+            _issue(issues, "scene_shot_range", f"Scene {scene_id}: estimated range must begin at {first} and end at or after it.", episode_id,
+                   suggested_fix="Use consecutive estimated ranges; the writer will choose the actual shot count.")
+            _references(scene, season, episode_id, issues)
+            continue
         anchor = scene.get("anchor_shot_number")
         if anchor is not None and (type(anchor) is not int or not first <= anchor <= last):
             _issue(issues, "scene_anchor", f"Scene {scene_id}: anchor must be a shot number from {first} to {last}.", episode_id,
-                   suggested_fix="Choose the medium-wide or wide opening frame that establishes this scene's geography.")
-        if type(scene.get("first_shot_number")) is not int or type(scene.get("last_shot_number")) is not int or scene.get("first_shot_number") != first or scene.get("last_shot_number") != last:
-            _issue(issues, "scene_shot_range", f"Scene {scene_id}: expected shot range {first}–{last}.", episode_id,
-                   suggested_fix=f"Set first_shot_number={first} and last_shot_number={last}.")
+                   suggested_fix="Choose a useful spatial reference within this scene's estimated range.")
         _references(scene, season, episode_id, issues)
         first = last + 1
     return issues
 
 
-def check_scene(scene: dict, scene_plan: dict, episode_plan: dict, season: dict) -> list[dict]:
+def check_scene(scene: dict, scene_plan: dict, episode_plan: dict, season: dict, *, config=None) -> list[dict]:
     """Check one generated scene against its plan and the existing shot contract."""
     issues = []
     episode_id = episode_plan.get("id", "")
@@ -152,26 +153,21 @@ def check_scene(scene: dict, scene_plan: dict, episode_plan: dict, season: dict)
     if scene.get("scene_id") != scene_id:
         _issue(issues, "scene_id", f"Scene id must be {scene_id!r}.", episode_id,
                suggested_fix="Copy scene_plan.id to scene_id.")
-    first, last = scene_plan.get("first_shot_number"), scene_plan.get("last_shot_number")
-    if type(first) is not int or type(last) is not int or first < 1 or last < first:
-        _issue(issues, "scene_shot_range", "Scene plan has an invalid shot range.", episode_id,
-               suggested_fix="Fix the numbered scene plan before generating this scene.")
-        return issues
     shots = scene.get("shots")
     if not isinstance(shots, list):
         _issue(issues, "shots_type", "Scene shots must be a list.", episode_id,
-               suggested_fix="Return one shot object for each planned shot number.")
+               suggested_fix="Return the scene's shot objects in viewing order.")
         return issues
-    if len(shots) != last - first + 1:
-        _issue(issues, "scene_shot_count", f"Scene {scene_id} has {len(shots)} shots; expected {last - first + 1}.", episode_id,
-               suggested_fix=f"Return shots {first} through {last}, each exactly once.")
+    if scene.get("anchor_shot_id") is not None and scene["anchor_shot_id"] not in [shot.get("id") for shot in shots if isinstance(shot, dict)]:
+        _issue(issues, "scene_anchor", "anchor_shot_id must refer to a shot in this scene.", episode_id,
+               suggested_fix="Select one of the returned shots as the spatial reference.")
     episode = {"id": episode_id, "title": episode_plan.get("title", episode_id), "shots": shots}
-    issues.extend(_episode_content(episode, season))
-    _shot_layout(shots, episode_id, first, issues, scene_id)
+    issues.extend(_episode_content(episode, season, config))
+    _shot_layout(shots, episode_id, None, issues, scene_id)
     return issues
 
 
-def check_long_season(episodes: list[dict], season: dict) -> list[dict]:
+def check_long_season(episodes: list[dict], season: dict, *, config=None) -> list[dict]:
     """Check final episode order, global ids and consecutive shot numbering."""
     issues = []
     if not isinstance(episodes, list):
@@ -195,7 +191,7 @@ def check_long_season(episodes: list[dict], season: dict) -> list[dict]:
             _issue(issues, "duplicate_episode_id", f"Episode id {episode_id!r} is duplicated.", episode_id,
                    suggested_fix="Use each planned episode id exactly once.")
         seen_episode_ids.add(episode_id)
-        issues.extend(_episode_content(episode, season))
+        issues.extend(_episode_content(episode, season, config))
         shots = episode.get("shots", [])
         if not isinstance(shots, list):
             continue

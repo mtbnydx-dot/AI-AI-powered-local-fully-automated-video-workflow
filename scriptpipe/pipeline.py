@@ -8,6 +8,9 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
+from videopipe.inputs import load_config
+from videopipe.models import PipelineConfig
+
 from .checks import check_episode
 from .export import export_season
 from .llm import GLMClient, write_json
@@ -28,14 +31,28 @@ def compact_episode(episode: dict) -> dict:
     fields = ("id", "scene_id", "location_id", "time_of_day", "characters", "prop_ids",
               "duration", "beat_zh", "action_start_zh", "action_end_zh", "action_complete",
               "cut_reason_zh", "visual_en", "camera_en", "soundscape_en",
-              "first_frame_prompt_en", "acceptance_en", "dialogue")
+              "first_frame_prompt_en", "acceptance_en", "dialogue", "reference_priority", "non_diegetic_music_en")
     return {**{k: v for k, v in episode.items() if k != "shots"},
             "shots": [{k: s[k] for k in fields if k in s} for s in episode.get("shots", [])]}
 
 
-def structural_issues(episodes: list[dict], season: dict) -> list[dict]:
+def production_brief(config: PipelineConfig) -> dict:
+    return {
+        "maximum_duration_seconds": config.comfyui.maximum_duration_seconds,
+        "maximum_requested_duration_seconds": (config.comfyui.maximum_requested_duration(config.media.fps)
+                                               if config.generator == "comfyui" else config.comfyui.maximum_duration_seconds),
+        "width": config.media.width, "height": config.media.height, "fps": config.media.fps,
+        "duration_rule": "Choose duration from the scene's dialogue, action and pacing within the configured workflow limit.",
+        "dialogue_language": config.script.language,
+        "language": "Chinese narrative fields; dialogue in the project's language or the specified line language; English production descriptions.",
+        "non_diegetic_music": config.script.non_diegetic_music,
+        "on_screen_text": config.script.on_screen_text,
+    }
+
+
+def structural_issues(episodes: list[dict], season: dict, config: PipelineConfig) -> list[dict]:
     return [{**issue, "episode_id": ep.get("id")}
-            for ep in episodes for issue in check_episode(ep, season)]
+            for ep in episodes for issue in check_episode(ep, season, config=config)]
 
 
 def merge_episode_repair(episode: dict, patch: dict) -> dict:
@@ -62,6 +79,7 @@ async def run(source_path: Path, out: Path, client: GLMClient, *, episode_count:
               repair_rounds: int = 2, production_config: Path | None = None,
               notes_path: Path | None = None, review_reasoning_effort: str | None = None) -> dict:
     review_reasoning_effort = review_reasoning_effort or client.reasoning_effort
+    config = load_config(production_config or Path("configs/b200.yaml"))
     out.mkdir(parents=True, exist_ok=True)
     state_file = out / "run.json"
     state = {"source": str(source_path.resolve()), "model": client.model,
@@ -83,16 +101,15 @@ async def run(source_path: Path, out: Path, client: GLMClient, *, episode_count:
                      reason="Remove embedded MediaWiki CSS; keep original source file unchanged")
     notes = notes_path.read_text(encoding="utf-8") if notes_path else ""
     brief = {
-        "episode_count": episode_count, "shots_per_episode": "12-15",
-        "preferred_duration_seconds": 5.875, "maximum_duration_seconds": 6,
-        "image_size": "576x1024 vertical 9:16", "fps": 24,
+        **production_brief(config),
+        "episode_count": episode_count,
+        "shot_count_policy": "Choose the number of shots from the story and its dialogue.",
         "format": "Live-action short drama; setting and complete story follow the supplied source and editor notes",
-        "language": "Chinese script and exact Mandarin dialogue; English visual/audio/image instructions",
-        "action_rule": "Complete a small action inside one shot; cut after a settled result, never split one action across adjacent shots",
-        "scope": "Text and image slots only; do not create images or videos",
+        "action_rule": "Describe the action, dialogue turns and state at each cut so adjacent shots form a coherent scene.",
+        "scope": "Write text and image-slot descriptions.",
         "adaptation_decisions": [
             "Preserve the source's complete causal chain and ending; follow explicit adaptation decisions in editor notes.",
-            "Condense repetitive exposition; write natural modern Mandarin dialogue without changing who knows what.",
+            "Develop the story through dialogue, inner monologue, conflict and action; track what each character knows.",
         ],
     }
     try:
@@ -126,7 +143,7 @@ async def run(source_path: Path, out: Path, client: GLMClient, *, episode_count:
         episodes = list(await asyncio.gather(*(write_episode(plan) for plan in plans)))
         reviews: list[dict] = []
         for cycle in range(repair_rounds + 1):
-            issues = structural_issues(episodes, season)
+            issues = structural_issues(episodes, season, config)
             review = await client.complete(f"review_{cycle}", prompt("short_season_review"), {
                 "brief": brief, "source_text": source, "editor_notes": notes,
                 "season": season, "episodes": [compact_episode(ep) for ep in episodes],
@@ -161,10 +178,10 @@ async def run(source_path: Path, out: Path, client: GLMClient, *, episode_count:
 
             episodes = list(await asyncio.gather(*(repair_episode(ep) for ep in episodes)))
 
-        checks = structural_issues(episodes, season)
+        checks = structural_issues(episodes, season, config)
         final_review = reviews[-1]
         summary = export_season(season, episodes, out / "delivery",
-                                production_config or Path("configs/b200.yaml"))
+                                config)
         quality = {"structural_issues": checks, "model_review": final_review,
                    "review_rounds": len(reviews),
                    "open_errors": [x for x in checks + final_review.get("issues", [])

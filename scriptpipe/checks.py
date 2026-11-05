@@ -3,28 +3,14 @@
 import math
 import re
 
+from videopipe.models import PipelineConfig
 
-FPS = 24
 _ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
-_CHINESE = re.compile(r"[\u3400-\u9fff]")
-_UNFINISHED = re.compile(r"尚未|还未|未完成|动作未完|没来得及|刚要|正要|到一半|伸到一半|走到一半")
-_CONTINUED = re.compile(r"上一镜|上个镜头|承接|延续|继续(?:刚才|上镜|动作)|接着(?:走|拿|伸|抬|打开|转身)")
 
 
-def h3_frame_count(duration: float, fps: int = FPS) -> int:
-    """Match videopipe's built-in H3 rounding: 5 + 17n frames."""
-    requested = max(5, math.ceil(duration * fps))
-    return requested + (5 - requested) % 17
-
-
-def spoken_length(text: str) -> int:
-    """Count spoken characters, excluding punctuation and whitespace."""
-    return sum(character.isalnum() for character in text)
-
-
-def check_episode(episode: dict, season: dict, *, maximum_duration_seconds: float = 6,
-                  maximum_dialogue_characters: int | None = 22) -> list[dict]:
-    """Report concrete errors and editorial warnings; never contact a model."""
+def check_episode(episode: dict, season: dict, *, config: PipelineConfig | None = None) -> list[dict]:
+    """Check fields, references and configured workflow limits."""
+    config = config or PipelineConfig()
     issues: list[dict] = []
 
     def issue(code: str, message: str, shot_id: str = "", severity: str = "error") -> None:
@@ -33,8 +19,6 @@ def check_episode(episode: dict, season: dict, *, maximum_duration_seconds: floa
     def english(value: object, field: str, shot_id: str) -> None:
         if not isinstance(value, str) or not value.strip():
             issue("missing_english", f"{field} must contain an English description.", shot_id)
-        elif _CHINESE.search(value):
-            issue("non_english_instruction", f"{field} contains Chinese; keep Chinese only in dialogue.", shot_id)
 
     characters = {item["id"]: item for item in season.get("characters", []) if isinstance(item, dict) and "id" in item}
     locations = {item["id"] for item in season.get("locations", []) if isinstance(item, dict) and "id" in item}
@@ -48,11 +32,8 @@ def check_episode(episode: dict, season: dict, *, maximum_duration_seconds: floa
     if not isinstance(shots, list) or not shots:
         issue("missing_shots", "Episode must contain shots.")
         return issues
-    if not 12 <= len(shots) <= 16:
-        issue("shot_count", f"Episode has {len(shots)} shots; the writing target is 12–16.", severity="warning")
 
     seen: set[str] = set()
-    previous: dict | None = None
     for index, shot in enumerate(shots):
         if not isinstance(shot, dict):
             issue("shot_type", f"Shot {index + 1} is not an object.")
@@ -75,14 +56,13 @@ def check_episode(episode: dict, season: dict, *, maximum_duration_seconds: floa
         valid_duration = isinstance(duration, (int, float)) and not isinstance(duration, bool) and math.isfinite(duration) and duration > 0
         if not valid_duration:
             issue("duration", "Duration must be a positive finite number.", shot_id)
-        else:
+        elif config.generator == "comfyui":
+            maximum_duration_seconds = config.comfyui.maximum_duration_seconds
             if duration > maximum_duration_seconds:
                 issue("duration_limit", f"Planned duration {duration:g}s exceeds the {maximum_duration_seconds:g}s limit.", shot_id)
-            elif duration < 4:
-                issue("short_duration", f"Planned duration is only {duration:g}s; check the action and dialogue budget.", shot_id, "warning")
-            rendered_duration = h3_frame_count(duration) / FPS
+            rendered_duration = config.comfyui.frame_count(duration, config.media.fps) / config.media.fps
             if rendered_duration > maximum_duration_seconds:
-                issue("h3_duration_limit", f"H3 rounds {duration:g}s to {rendered_duration:.3f}s; shorten the request to stay within {maximum_duration_seconds:g}s.", shot_id)
+                issue("h3_duration_limit", f"The workflow rounds {duration:g}s to {rendered_duration:.3f}s; the configured limit is {maximum_duration_seconds:g}s.", shot_id)
 
         cast = shot.get("characters", [])
         if not isinstance(cast, list):
@@ -114,26 +94,27 @@ def check_episode(episode: dict, season: dict, *, maximum_duration_seconds: floa
 
         for field in ("visual_en", "camera_en", "soundscape_en", "first_frame_prompt_en"):
             english(shot.get(field), field, shot_id)
+        if "non_diegetic_music_en" in shot:
+            english(shot["non_diegetic_music_en"], "non_diegetic_music_en", shot_id)
+        priority = shot.get("reference_priority", [])
+        if not isinstance(priority, list) or any(not isinstance(item, str) for item in priority):
+            issue("reference_priority_type", "reference_priority must be a list of entity IDs.", shot_id)
         acceptance = shot.get("acceptance_en", [])
-        if not isinstance(acceptance, list) or not acceptance:
-            issue("acceptance", "At least one observable English acceptance criterion is required.", shot_id)
+        if not isinstance(acceptance, list):
+            issue("acceptance", "acceptance_en must be a list of observable requirements, or an empty list.", shot_id)
         else:
             for criterion in acceptance:
                 english(criterion, "acceptance_en", shot_id)
         for field in ("beat_zh", "action_start_zh", "action_end_zh", "cut_reason_zh"):
             if not isinstance(shot.get(field), str) or not shot[field].strip():
                 issue("missing_story_field", f"{field} is missing.", shot_id)
-        if shot.get("action_complete") is not True:
-            issue("unfinished_action", "The shot must complete its central action before the cut.", shot_id)
+        if not isinstance(shot.get("action_complete"), bool):
+            issue("action_complete_type", "action_complete must be a JSON boolean describing the action at the cut.", shot_id)
 
         dialogue = shot.get("dialogue", [])
         if not isinstance(dialogue, list):
             issue("dialogue_type", "dialogue must be a list.", shot_id)
             dialogue = []
-        if len(dialogue) > 1:
-            issue("dialogue_count", "Use at most one complete spoken line per short shot.", shot_id)
-        speakers: set[str] = set()
-        total_characters = 0
         for line in dialogue:
             if not isinstance(line, dict):
                 issue("dialogue_type", "Each dialogue line must be an object.", shot_id)
@@ -141,7 +122,8 @@ def check_episode(episode: dict, season: dict, *, maximum_duration_seconds: floa
             speaker = line.get("speaker_id")
             if not isinstance(line.get("voiceover"), bool):
                 issue("voiceover_type", "voiceover must be a JSON boolean.", shot_id)
-            speakers.add(str(speaker))
+            if "language" in line and (not isinstance(line["language"], str) or not line["language"].strip()):
+                issue("dialogue_language_type", "language must be a language name string.", shot_id)
             if speaker not in characters:
                 issue("unknown_speaker", f"Unknown speaker_id: {speaker!r}.", shot_id)
             if line.get("voiceover") is not True and speaker not in cast_ids:
@@ -151,29 +133,4 @@ def check_episode(episode: dict, season: dict, *, maximum_duration_seconds: floa
             if not isinstance(text, str) or not text.strip():
                 issue("empty_dialogue", "Dialogue text is empty.", shot_id)
                 continue
-            if "<" in text or ">" in text:
-                issue("dialogue_markup", "text_zh must be plain spoken text without markup.", shot_id)
-            if not _CHINESE.search(text):
-                issue("dialogue_language", "Dialogue must be Mandarin Chinese text.", shot_id)
-            total_characters += spoken_length(text)
-        if len(speakers) > 1:
-            issue("multiple_speakers", "Use at most one speaker in a shot.", shot_id)
-        if maximum_dialogue_characters is not None:
-            if total_characters > maximum_dialogue_characters:
-                issue("dialogue_length", f"Shot has {total_characters} spoken characters; the hard limit is {maximum_dialogue_characters}.", shot_id)
-            elif total_characters > 18:
-                issue("long_dialogue", f"Shot has {total_characters} spoken characters; prefer at most 18.", shot_id, "warning")
-        if total_characters and valid_duration and total_characters / 4 + 0.8 > duration:
-            issue("dialogue_timing", f"{total_characters} characters need about {total_characters / 4 + 0.8:.2f}s including a short pause; shot allows {duration:g}s.", shot_id)
-
-        if previous is not None:
-            previous_cast = {item.get("id") for item in previous.get("characters", []) if isinstance(item, dict)}
-            same_scene = previous.get("scene_id") == shot.get("scene_id") and previous.get("location_id") == shot.get("location_id")
-            same_people = bool(cast_ids) and previous_cast == cast_ids
-            if same_scene and same_people:
-                previous_end = str(previous.get("action_end_zh", ""))
-                current_start = str(shot.get("action_start_zh", ""))
-                if previous.get("action_complete") is not True or _UNFINISHED.search(previous_end) or _CONTINUED.search(current_start):
-                    issue("adjacent_action_continuation", f"Same cast and scene as {previous.get('id')}; an unfinished action appears to continue across the cut. Merge it or redesign the cut.", shot_id, "warning")
-        previous = shot
     return issues

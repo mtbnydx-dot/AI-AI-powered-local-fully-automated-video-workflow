@@ -82,6 +82,22 @@ class ImageEpisodeSelectionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "season package"):
             compile_plan(self.package / "episodes/ep01", ImageConfig(), ["ep01"])
 
+    def test_reference_budget_uses_configured_priority_without_restricting_cast(self):
+        config = ImageConfig(api={"max_reference_images": 2}, continuity={
+            "auto_scene_anchors": False,
+            "reference_priority": {"first-frame-ep01_s001": ["open-box", "outfit-hero"]},
+        })
+        tasks = {task.asset_id: task for task in compile_plan(self.package, config, ["ep01"]).tasks}
+        frame = tasks["first-frame-ep01_s001"]
+        self.assertEqual(frame.reference_ids, ["open-box", "outfit-hero"])
+        self.assertIn("<image1>: appearance of open-box", frame.prompt)
+        self.assertIn("<image2>: clothing design for hero", frame.prompt)
+        self.assertNotIn("Exactly", frame.prompt)
+        self.assertTrue(all(len(task.reference_ids) <= 2 for task in tasks.values()))
+        config.api.max_reference_images = 12
+        frames = {task.asset_id: task for task in compile_plan(self.package, config, ["ep01"]).tasks}
+        self.assertEqual(len(frames["first-frame-ep01_s001"].reference_ids), 4)
+
     def test_cli_persists_selection_resumes_and_rejects_different_selection(self):
         from imagepipe.cli import main
 

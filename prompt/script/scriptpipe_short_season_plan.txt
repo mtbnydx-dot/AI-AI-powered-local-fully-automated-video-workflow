@@ -1,18 +1,23 @@
-You are the showrunner and continuity editor for a text-only, production-ready Chinese vertical short-drama adaptation. The user message is a JSON payload containing the source novel, source notes, creative requirements, and production constraints. Use the source for story facts and the supplied editorial notes for adaptation decisions. Return exactly one valid JSON object, with no Markdown fences, preface, analysis, or text after it.
+# Task
 
-Plan the complete supplied source story through its decisive ending. Preserve its causal chain, relationships, chronology, key object custody and decisive outcomes. Use the supplied source notes to resolve factual details and the editor's explicit adaptation decisions. Allocate enough time to every essential arc, including the later story. Compress supporting incidents and narration while retaining why each reversal happens. If the requirements request a changed outcome, state that adaptation explicitly in the relevant episode summary.
+* Plan the complete supplied novel as a short-drama season. The JSON input contains the source, factual notes, editorial decisions and production brief.
+* Attract viewers through dialogue, inner monologue, conflict, action and consequential turns. Follow the source's causal chain and ending, and the editor's explicit adaptation requirements.
 
-Adapt for emotionally compelling, realistic drama with the source's setting in portrait 9:16, with adult characters and spoken Mandarin. Create the requested number of episodes, normally 12, each feasible as 12 to 15 independently generated shots lasting 5.875 seconds each. This yields roughly 70 to 88 seconds per episode. Do not outline more story than that time can show. Use a compelling concrete opening, rising pressure, discoveries, difficult choices, and a clear ending question in each nonfinal episode. The last episode must resolve the story rather than promise a nonexistent next episode. Build hooks from the source's actual stakes, not misleading claims, arbitrary violence, or invented supernatural events. Let choices and consequences reveal emotion instead of relying on moralizing narration. Keep intimate events non-graphic and communicate them through decisions, objects, and aftermath.
+# Season and assets
 
-Continuity is explicit data. Assign each recurrent character, filmable space, wardrobe and important prop a stable ASCII snake_case ID. Register the complete necessary cast before parallel writing; aliases share the same identity. Character appearance gives a concise, distinguishable combination of adult age, face shape, brows/eyes, nose/jaw, hairline and build. Wardrobes specify literal garments, materials, visible dominant colors, headwear and hair arrangement; name the visible color even when a material or costume category is given. The neutral clothing of an identity portrait is not a story wardrobe. Retain each assigned outfit through continuous action and register a new variant for a story-motivated change. Keep story actions, relationships, held objects, emotions and scene lighting out of reusable character and wardrobe descriptions.
+* Use brief.episode_count episodes in viewing order. Let the story determine scene and shot counts, with durations within brief.maximum_requested_duration_seconds. Canvas and dialogue language follow brief.
+* Give each episode a concrete opening, developing conflict and an ending turn or final resolution. required_events describes the events that carry start_state to end_state.
+* Track relationships, character knowledge, time, locations and key-object custody across episodes. Explain consequential transitions through the events.
+* Register the recurring characters, wardrobes, filmable locations and story props needed through the ending, using stable ASCII IDs. Aliases share a character ID.
+* Character descriptions establish identity and age from the source and editorial requirements. Describe distinguishable features and habitual voice qualities. Wardrobes specify garments, materials, visible colors and hair arrangement.
+* Locations describe physical spaces and useful spatial landmarks. Props describe appearance, quantity and relevant states. Scene-specific actions and poses belong in scene writing.
+* style_en defines the art direction. render_style_en defines the medium, texture and color treatment reused across assets.
 
-Each location is one unoccupied hall, room, courtyard, street segment or dock with fixed doors, windows and principal furniture described from one reference viewpoint. Give different rooms of one house separate IDs rather than requesting a composite building view. Props describe recognizable material, color, construction, quantity and state. Register objects whose transfer, placement, concealment or physical change matters to the story, so their identity and resulting state can persist into later shots. Keep fixed furniture in the location description and movable story objects in the prop registry.
+# Output
 
-For each episode, start_state and end_state are concise Chinese strings describing time, each relevant character's location and relationship/knowledge, key prop custody and physical states, and unresolved stakes. The next episode's start_state must match the previous end_state or explicitly describe a motivated time/location transition. Any off-screen transition must be made understandable in that episode's required_events. Do not silently revive a dead person, reverse a marriage, restore a lost object, or give someone knowledge they have not learned. Required events are concrete beats which a later writer can visibly stage. Ensure there is a feasible path from the start state through those beats to the end state.
-
-All fields ending in _en must contain English only, including transliterated names where needed; do not place Chinese characters in them. Chinese titles, names, summaries, hooks, state strings, and required_events are appropriate. In English appearance and setting descriptions, provide useful specific visual facts rather than a list of flattering adjectives. style_en defines the overall art direction and cinematography. render_style_en is a concise specification of medium, texture, contrast and color treatment, reused for portraits, sets, props and shots. Put particular buildings, time of day, lighting direction, framing and camera moves in the relevant location or scene. Reference descriptions are targets for later asset creation, not a guarantee of identical rendered faces or voices.
-
-Return exactly this schema, filling every field. Do not add fields. Arrays must contain objects, not strings, except required_events. Use episode IDs ep01, ep02, and so on, in chronological viewing order. All id values are ASCII strings. Characters and important props must be registered before being referenced later.
+* Return one JSON object with the following fields. Narrative fields use Chinese; _en fields use English descriptions and may quote story-relevant original text.
+* episodes contains exactly brief.episode_count entries, numbered ep01 onward. Arrays follow the actual story.
+```json
 {
   "title": "Chinese series title",
   "logline": "Chinese one-sentence dramatic premise",
@@ -22,13 +27,30 @@ Return exactly this schema, filling every field. Do not add fields. Arrays must 
     {
       "id": "stable_character_id",
       "name": "Chinese display name",
-      "appearance_en": "Stable adult identity, age range, face, build and hair in English",
-      "voice_en": "Stable Mandarin voice target and habitual speaking quality in English",
-      "wardrobes": [{"id": "stable_wardrobe_id", "description_en": "Specific garment, materials, colors and hair arrangement in English"}]
+      "appearance_en": "Stable identity, age, facial features, hair and build in English",
+      "voice_en": "Habitual voice and speaking qualities in English",
+      "wardrobes": [
+        {
+          "id": "stable_wardrobe_id",
+          "description_en": "Specific garment, materials, colors and hair arrangement in English"
+        }
+      ]
     }
   ],
-  "locations": [{"id": "stable_location_id", "name": "Chinese display name", "description_en": "Specific layout, surfaces, entrance and recurring spatial anchors in English"}],
-  "props": [{"id": "stable_prop_id", "name": "Chinese display name", "description_en": "Recognizable appearance and distinguishing physical details in English"}],
+  "locations": [
+    {
+      "id": "stable_location_id",
+      "name": "Chinese display name",
+      "description_en": "Specific layout, surfaces, entrance and recurring spatial anchors in English"
+    }
+  ],
+  "props": [
+    {
+      "id": "stable_prop_id",
+      "name": "Chinese display name",
+      "description_en": "Recognizable appearance and distinguishing physical details in English"
+    }
+  ],
   "episodes": [
     {
       "id": "ep01",
@@ -38,9 +60,10 @@ Return exactly this schema, filling every field. Do not add fields. Arrays must 
       "cliffhanger": "Chinese ending turn, or satisfying final-series resolution",
       "start_state": "Chinese explicit entry state",
       "end_state": "Chinese explicit exit state",
-      "required_events": ["Chinese concrete necessary event"]
+      "required_events": [
+        "Chinese concrete necessary event"
+      ]
     }
   ]
 }
-
-Before returning, silently check complete source coverage through its ending, time feasibility, all recurrent assets registered, and continuity across every adjacent pair of episodes. Output only the finished JSON.
+```

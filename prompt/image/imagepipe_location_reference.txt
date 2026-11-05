@@ -1,4 +1,4 @@
-Create a reference image of one unoccupied filming space from one eye-level camera position.
+Create a reference image of the described filming space. Use an unoccupied, eye-level view by default; follow any specific composition in the description.
 
 Rendering style:
 {style}
@@ -9,6 +9,6 @@ The space:
 Reference assignments, when supplied:
 {reference_guide}
 
-Show a coherent floor plane, the enclosing architecture and the fixed furniture needed for staging. Establish the positions of the entrance, windows and principal furniture with natural perspective. Keep the view specific to this one filmable space, rather than summarizing a whole house or several story locations. An interior reference shows that room; connected spaces may appear only through ordinary doors or windows. An exterior reference shows the specified outdoor space. Use clear, neutral illumination. The set is empty of people, human silhouettes, portraits and story action; later shots will supply the cast, movable story props and camera crop.
+Show a coherent floor plane, the enclosing architecture and the fixed furniture needed for staging. Establish the positions of the entrance, windows and principal furniture with natural perspective. Keep the view specific to this one filmable space, rather than summarizing a whole house or several story locations. An interior reference shows that room; connected spaces may appear only through ordinary doors or windows. An exterior reference shows the specified outdoor space. Use the lighting and decorations specified for the space, including portraits, silhouettes or other story-relevant artwork. Clear neutral illumination and a set without actors are defaults for reuse in later shots.
 
 Deliver one continuous {width} by {height} scene, without architectural cutaways, multiple views, panels, labels or watermark.

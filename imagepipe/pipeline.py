@@ -110,7 +110,7 @@ class ImagePipeline:
         await self._read(self.client.download, results["data"][0]["url"], original)
         generation = self.config.generation
         dimensions = await asyncio.to_thread(
-            deliver_image, original, Path(task.target_path), generation.width, generation.height,
+            deliver_image, original, Path(task.target_path), generation.width, generation.height, generation.resize_mode,
         )
         finished = time.time()
         record.update(

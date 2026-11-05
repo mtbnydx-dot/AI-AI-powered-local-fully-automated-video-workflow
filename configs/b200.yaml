@@ -9,6 +9,7 @@ comfyui:
     - http://127.0.0.1:8193
     - http://127.0.0.1:8194
   timeout: 3600
+  maximum_duration_seconds: 10
   parameters:
     steps: 10
 # GPU0-6: generation and per-shot upscale; GPU7: Qwen review + ASR.
@@ -31,11 +32,15 @@ asr:
   language: null
   timeout: 600
 media:
-  width: 864
-  height: 480
+  width: 576
+  height: 1024
   fps: 24
   upscale: comfyui
   upscale_factor: 2
+script:
+  language: Chinese
+  non_diegetic_music: N/A
+  on_screen_text: Include story-relevant writing. Subtitles and watermarks follow the editor's delivery requirements.
 workers: 7
 max_attempts: 3
 human_approval: false

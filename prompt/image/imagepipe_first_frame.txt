@@ -3,7 +3,7 @@ Create one camera view of one scene at the opening instant of a video shot. All 
 Rendering style:
 {style}
 
-Opening composition and current cast:
+Opening composition, featured cast and background people:
 {description}
 
 Reference assignments, in upload order:
@@ -11,8 +11,8 @@ Reference assignments, in upload order:
 
 Render each listed person once. Their identity and wardrobe references are views of the same individual: use the identity for the face and the target wardrobe for clothing, including its specified colors. The opening composition determines the visible cast. Any partial figure at a frame edge belongs to its named person, rather than an additional copy.
 
-Location references establish the empty set. Scene references supply fixed geography and light; their people, poses and wide framing are context, not additions to the target composition. Reframe at the requested camera distance and crop, allowing off-camera people and furniture to remain outside the image. Compose the target cast with natural scale, contact and occlusion.
+Location references establish architecture and fixed furnishings. Scene references supply fixed geography and light; their people, poses and wide framing are context, not additions to the target composition. Reframe at the requested camera distance and crop, allowing off-camera people and furniture to remain outside the image. Compose the target cast with natural scale, contact and occlusion.
 
-Show only the stated starting state. Make important object support and custody readable: an object held before placement is supported by the named hands and visibly separated from its destination. Prop references define appearance; the opening description defines quantity, position and current state. Leave the subsequent movement and result to the video.
+Show the stated starting state, with story-relevant object positions and custody clear. Prop references define appearance; the opening description defines quantity, position and current state. Leave the subsequent movement and result to the video.
 
-Deliver a single {width} by {height} image of this scene, with continuous geometry and no panel divisions, inset portraits, captions or watermark.
+Deliver a single {width} by {height} image of this scene. Include story-relevant writing and any overlays explicitly requested by the opening description.

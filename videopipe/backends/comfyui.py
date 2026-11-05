@@ -1,5 +1,4 @@
 import json
-import math
 import mimetypes
 import re
 import time
@@ -77,8 +76,7 @@ class ComfyGenerator:
             return self._execute(client, workflow, values, output_dir)
 
     def _frames(self, duration: float, fps: int) -> int:
-        requested = max(self.config.frame_offset, math.ceil(duration * fps))
-        return requested + (self.config.frame_offset - requested) % self.config.frame_multiple
+        return self.config.frame_count(duration, fps)
 
     def _upload(self, client: httpx.Client, path: Path) -> str:
         with path.open("rb") as media:

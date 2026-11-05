@@ -17,24 +17,23 @@
 * 按整季规划中的本集 id、required_events、start_state 和 end_state 展开剧情，让本集从指定的开始局面发展到结束局面。
 * 根据剧情所需的地点和时间变化划分场景，每场对应一个 location_id 和 time_of_day。场景数和镜头数由实际内容决定，目标时长以 brief 为参考。
 * 用 dramatic_purpose 交代本场人物的目标、矛盾和局面变化；用 beats 按观看顺序写出具体对白、独白和动作。
-* beats 是中文字符串数组，每条对应一个镜头。对白或独白条目写明说话者和具体台词，动作条目写明人物的具体行动，并交代影响后续剧情的结果。
-* 将对话展开为衔接自然的发言回合，每个镜头容纳一名人物的一次完整发言或一个完整主要动作。内心独白注明仅观众可听见。
-* 按台词自然说完、动作完成所需的时间安排镜头内容，时长上限以 brief.maximum_requested_duration_seconds 为准；brief.preferred_duration_seconds 作为参考。
+* beats 是中文字符串数组，按剧情发展写出说话者、具体对白／独白、人物行动及其结果。后续写作可根据表演需要拆分或合并为镜头。
+* 将对话展开为衔接自然的发言回合，写清人物回应、打断和动作交互。内心独白注明仅观众可听见。
+* 按台词自然说完、动作完成所需的时间安排镜头内容，时长上限以 brief.maximum_requested_duration_seconds 为准。
 
 # 场景衔接与制作信息
 
 * 用 start_state 和 end_state 交代每场开始和结束时的人物关系、知情情况、关键物品位置及持有者，以及衔接所需的人物位置和姿态。相邻场景承接这些变化，并交代时间或地点的转换。
 * continuity_en 用英文描述本场固定的空间布局、门窗家具、光源和人物互动轴线，供各镜头生成首帧时共同参考。
-* 从本场镜头范围内选出 anchor_shot_number，其首帧应清楚展示人物与周围环境的空间关系，作为本场的空间参考。
+* anchor_shot_number 暂定本场可用的空间参考镜头，具体构图和最终镜头由分镜写作确定。
 * 人物、服装、地点和道具使用整季规划中的注册 ID。characters 汇总本场实际出镜的人物及其服装，prop_ids 汇总本场实际出现的关键道具。
-* 构图使用的参考图总数上限为 10 张：每位可见人物占两张（身份、服装），地点占一张，每件可见的注册道具占一张。
 
 # 输出格式
 
 * 仅返回符合以下结构的合法 JSON，字段和类型与示例一致。
-* 叙事字段使用中文，continuity_en 使用英文，ID 使用 ASCII。scenes 包含本集全部场景，beats 包含对应场景的全部镜头内容。
+* 叙事字段使用中文，continuity_en 使用英文，ID 使用 ASCII。scenes 包含本集全部场景，beats 包含对应场景的对白和动作发展。
 * 场景 ID 按本集 ID 加 _scene01、_scene02 等后缀依次编号。
-* 镜头编号在本集内从 1 连续递增。每场 first_shot_number 承接上一场末尾，last_shot_number = first_shot_number + len(beats) - 1。
+* first_shot_number 和 last_shot_number 提供连续的预计镜号范围，从 1 开始。实际镜头数由分镜写作决定，合并时统一更新编号和引用。
 * time_of_day 使用 dawn、morning、afternoon、dusk、evening 或 night。
 * 示例展示字段类型，场景数和 beats 数量按实际内容填写。
 
@@ -58,7 +57,7 @@
       "dramatic_purpose": "用中文描述具体目标、阻力和产生后果的转折",
       "start_state": "用中文明确描述本场开始状态",
       "end_state": "用中文明确描述本场结束状态",
-      "beats": ["用中文写明本镜头的说话者和具体对白／独白，或人物动作及其结果"],
+      "beats": ["用中文写明说话者和具体对白／独白、人物动作及其结果"],
       "first_shot_number": 1,
       "last_shot_number": 1
     }

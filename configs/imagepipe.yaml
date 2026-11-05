@@ -2,13 +2,18 @@ api:
   base_url: https://api.zlk7301.com
   env_file: .env
   key_name: QWEN-IMAGE
+  max_reference_images: 10
 generation:
   model: qwen-image-2.1
   steps: 20
   width: 720
   height: 1280
+  resize_mode: crop  # pad preserves the full composition with letterboxing.
   seed_base: 20261101
 scheduler:
   http_concurrency: 16
   max_active_jobs: 64
   poll_interval_seconds: 5
+continuity:
+  auto_scene_anchors: true
+  reference_priority: {}  # Per first-frame asset: reference asset IDs in priority order.

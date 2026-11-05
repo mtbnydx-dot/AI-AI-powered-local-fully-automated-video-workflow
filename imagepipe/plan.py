@@ -12,7 +12,7 @@ from .models import CopyTask, ImageConfig, ImagePlan, ImageTask
 def compile_plan(package_dir: Path, config: ImageConfig, episode_ids: list[str] | None = None) -> ImagePlan:
     root = Path(package_dir).resolve()
     selected, catalogue, copies, style = _load_inputs(root, episode_ids)
-    references, masters = _dependencies(selected, catalogue, config.continuity)
+    references, masters = _dependencies(selected, catalogue, config.continuity, config.api.max_reference_images)
     canonical_indices = {asset_id: index for index, asset_id in enumerate(catalogue)}
     tasks = []
     for index, asset_id in enumerate(selected):
@@ -130,7 +130,7 @@ def _load_inputs(root: Path, episode_ids: list[str] | None = None
     return selected, catalogue, copies, style
 
 
-def _dependencies(selected: list[str], catalogue: dict[str, dict], continuity: dict
+def _dependencies(selected: list[str], catalogue: dict[str, dict], continuity: dict, max_references: int
                   ) -> tuple[dict[str, list[str]], dict[str, str]]:
     masters = {}
     for asset_id, slot in catalogue.items():
@@ -141,6 +141,7 @@ def _dependencies(selected: list[str], catalogue: dict[str, dict], continuity: d
     anchors = _frame_anchors(catalogue, continuity.get("sets", []),
                              auto=continuity.get("auto_scene_anchors", True))
     additional = continuity.get("additional_reference_assets", {})
+    priorities = continuity.get("reference_priority", {})
     references = {}
     # Appending dependencies here also brings missing season masters into an episode run.
     for asset_id in selected:
@@ -156,16 +157,9 @@ def _dependencies(selected: list[str], catalogue: dict[str, dict], continuity: d
         missing = [ref for ref in refs if ref not in catalogue]
         if missing:
             raise ValueError(f"{asset_id} references missing asset {missing[0]}")
-        if slot.get("purpose") == "first_frame" and len(refs) > 10:
-            identities = {catalogue[ref]["character_id"] for ref in refs
-                          if catalogue[ref].get("purpose") == "character_identity"}
-            garments = [ref for ref in refs if catalogue[ref].get("wardrobe_id")
-                        and catalogue[ref].get("character_id") in identities]
-            required = [ref for ref in refs if ref not in garments]
-            # Faces, set continuity and story props take priority; costume text is always included.
-            refs = required + garments[:max(0, 10 - len(required))]
-        if len(refs) > 10:
-            raise ValueError(f"{asset_id} needs {len(refs)} reference images; the service accepts at most 10")
+        priority = {ref: index for index, ref in enumerate(priorities.get(asset_id, []))}
+        refs.sort(key=lambda ref: priority.get(ref, len(priority)))
+        refs = refs[:max_references]
         for reference_id in refs:
             if reference_id not in selected:
                 selected.append(reference_id)
@@ -249,10 +243,7 @@ def _frame_description(slot: dict, catalogue: dict[str, dict], style: str) -> st
             cast.append(f"{reference['character_id']} wears {costume.rstrip('.')}")
     parts = [_description(slot, style)]
     if cast:
-        count = f"{len(cast)} person is" if len(cast) == 1 else f"{len(cast)} people are"
-        parts.append(f"Exactly {count} visible: " + "; ".join(cast) + ".")
-    elif "characters" in slot.get("consistency_source", {}):
-        parts.append("The frame contains no people.")
+        parts.append("Featured character wardrobe: " + "; ".join(cast) + ".")
     if slot.get("continuity_en"):
         parts.append("Scene geography: " + slot["continuity_en"])
     return " ".join(parts)

@@ -14,34 +14,35 @@
 
 # 镜头脚本
 
-* 按 scene_plan.beats 的顺序为每条生成一个完整镜头，落实计划中的发言意图、信息和动作，结合自然口语与镜头时长完善台词。
-* 每个镜头是一次连续拍摄，完成一名人物的一次完整发言或一个主要动作。通过镜头之间的衔接呈现人物对话和冲突的发展。
-* duration 根据台词、动作和反应所需时间确定，取大于零且不超过 brief.maximum_requested_duration_seconds 的秒数；brief.preferred_duration_seconds 作为参考。
-* beat_zh 说明本镜头推进的剧情，action_start_zh 和 action_end_zh 说明开始与结束状态，action_complete 表示该节拍已完成，cut_reason_zh 说明此处转向下一镜头的原因。
+* 按 scene_plan.beats 展开剧情，落实计划中的发言意图、信息和动作。根据对话与表演需要拆分或合并镜头，完善自然口语台词。
+* 写清每个镜头中的人物对话、行动和反应，以及镜头之间如何衔接。构图、运镜、打断和切镜由剧情需要决定；使用内部剪辑时在 visual_en 和 camera_en 中交代。
+* duration 根据台词、动作和反应所需时间确定，取大于零且不超过 brief.maximum_requested_duration_seconds 的秒数。
+* beat_zh 说明本镜头在场景中的作用，action_start_zh 和 action_end_zh 说明开始与结束状态，action_complete 用布尔值记录切镜时主要动作是否完成，cut_reason_zh 说明此处转向下一镜头的原因。
 
 # 对白、独白与声音
 
-* dialogue 记录实际说出的台词。每个镜头包含一名已注册人物的一条完整发言；无发言时使用空数组。
-* text_zh 填写确切的中文台词，delivery_en 用英文说明语气、情绪和语速，让台词能在镜头时长内自然说完。
+* dialogue 按发言顺序记录实际台词，可包含多个人物、多轮发言；无发言时使用空数组。
+* text_zh 填写确切台词，language 使用英文语言名称，默认沿用 brief.dialogue_language。delivery_en 用英文说明符合人物情绪和交锋节奏的发声方式。
 * 画内人物说话时设置 voiceover=false，说话者列入 characters，并在画面描述中体现说话状态。
-* 内心独白或画外发言设置 voiceover=true，画内人物嘴唇保持闭合。在 visual_en 和 delivery_en 中说明是仅观众听见的内心想法，还是场内人物也能听见的画外发言，延续相应的知情状态。
+* 内心独白或画外发言设置 voiceover=true，对应人物在该段发言期间保持画外发声的表现。在 visual_en 和 delivery_en 中说明是仅观众听见的内心想法，还是场内人物也能听见的画外发言，延续相应的知情状态。
 * soundscape_en 描述环境声、动作拟音和非语言声音，具体台词统一放在 dialogue 中。
 
 # 画面与连续性
 
 * 按场景计划中的地点、时段、人物、服装和空间布局安排镜头，让画面表现服务于当前对话和动作。
 * first_frame_prompt_en 用一个自包含的英文段落描述镜头开始的静态画面，包括景别、角度、可见人物及服装主色、位置姿态、重要物品、环境和光照，与 action_start_zh 一致。该段会独立交给图像生成器。
-* visual_en 用英文描述从首帧开始发生的动作、说话状态和反应；camera_en 说明景别、角度、竖屏构图和运镜。
+* visual_en 用英文描述从首帧开始发生的动作、说话状态和反应；camera_en 说明景别、角度、构图和运镜，画幅以 brief.width 和 brief.height 为准。
 * 相邻镜头延续人物位置、关系、知情情况和物品状态。场景锚点与 continuity_en 提供共同的空间参考，具体取景依据本镜头内容确定。
 * 人物、服装、地点和道具使用整季规划中的注册 ID。characters 对应本镜头实际可见的人物及其服装，prop_ids 对应实际可见的关键道具。
-* 每帧参考图总数上限为 10 张：每位可见人物占两张（身份、服装），地点占一张，每件可见的注册道具占一张。
-* acceptance_en 用英文列出 2–4 条本镜头的关键可观察要求，涵盖人物、服装、影响剧情的物品状态或主要动作。
+* reference_priority 按本镜头的重要性排列需要优先参考的人物、地点或道具 ID；图片阶段按服务配置选择参考图。背景人物和画面人数按剧情描述。
+* acceptance_en 用英文列出影响剧情理解的关键可观察要求，可为空数组。剧情需要的信件、手机消息和招牌文字可以写入画面，字幕和水印按 brief.on_screen_text 与编辑要求处理。
+* 配乐沿用 brief.non_diegetic_music；本镜头需要单独安排时，可增加 non_diegetic_music_en 描述。
 
 # 输出格式
 
 * 仅返回符合以下结构的合法 JSON，字段和类型与示例一致。shots 包含指定场景的全部镜头。
-* episode_id 和 scene_id 使用指定值。镜头按 first_shot_number 到 last_shot_number 的范围顺序排列，id 格式为 episode_id + _s + 三位数字，例如 ep01_s013。
-* 叙事字段和 text_zh 使用中文，所有 _en 字段使用英文。
+* episode_id 和 scene_id 使用指定值。shots 按观看顺序排列，每镜使用场景内唯一的 ASCII ID，例如 ep01_scene01_s001；合并时会统一编为 ep01_s001。anchor_shot_id 指向本次输出中适合作为空间参考的镜头。
+* 叙事字段使用中文，text_zh 使用该句指定的语言，所有 _en 字段用英文描述，剧情需要的原文文字可直接引用。
 * time_of_day 使用场景指定的 dawn、morning、afternoon、dusk、evening 或 night。
 * characters、prop_ids 和 dialogue 根据实际内容填写，可为空数组。示例中的镜头数量和 duration 仅展示类型。
 
@@ -49,26 +50,28 @@
 {
   "episode_id": "ep01",
   "scene_id": "ep01_scene01",
+  "anchor_shot_id": "ep01_scene01_s001",
   "shots": [
     {
-      "id": "ep01_s001",
+      "id": "ep01_scene01_s001",
       "scene_id": "ep01_scene01",
       "location_id": "registered_location_id",
       "time_of_day": "morning",
       "characters": [{"id": "registered_character_id", "wardrobe_id": "registered_wardrobe_id"}],
       "prop_ids": ["registered_prop_id"],
+      "reference_priority": ["registered_prop_id", "registered_character_id", "registered_location_id"],
       "duration": 4.0,
-      "beat_zh": "用中文描述具体的剧情推进",
-      "action_start_zh": "用中文描述可观察的稳定起始状态",
-      "action_end_zh": "用中文描述可观察的动作完成后的结束状态",
+      "beat_zh": "用中文描述镜头在场景中的作用",
+      "action_start_zh": "用中文描述可观察的起始状态",
+      "action_end_zh": "用中文描述切镜时的可观察状态",
       "action_complete": true,
-      "cut_reason_zh": "用中文说明已完成的节拍及合理的切镜原因",
+      "cut_reason_zh": "用中文说明本镜头作用及切镜原因",
       "visual_en": "用英文描述从起始帧自然延续的可观察动作和反应",
-      "camera_en": "用英文描述景别、角度、竖屏构图和简单摄影指示",
+      "camera_en": "用英文描述景别、角度、构图和摄影指示",
       "soundscape_en": "用英文描述环境声和拟音",
-      "dialogue": [{"speaker_id": "registered_character_id", "text_zh": "精简中文对白", "delivery_en": "用英文描述发声表现要求", "voiceover": false}],
+      "dialogue": [{"speaker_id": "registered_character_id", "text_zh": "具体台词", "language": "Chinese", "delivery_en": "用英文描述发声表现要求", "voiceover": false}],
       "first_frame_prompt_en": "用英文自包含地描述实际开始时刻的静态图像",
-      "acceptance_en": ["用英文描述可观察的要求", "用英文描述可观察的要求"]
+      "acceptance_en": []
     }
   ]
 }

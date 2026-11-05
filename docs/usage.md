@@ -40,9 +40,32 @@ videopipe collect /data/runs/video-season
 
 图片的 `run` 遇到已有 `tasks.json` 会读取已存计划；目标图片存在即复用。全剧包内的状态字段保留文字导出时的快照；分批交付包在图片齐备后写入实际交付状态。视频入口按实际文件是否存在校验。
 
+## 可配置的制作参数
+
+在 `--production-config` 指定的 YAML 中设置：
+
+```yaml
+comfyui:
+  maximum_duration_seconds: 10
+media:
+  width: 576
+  height: 1024
+  fps: 24
+  upscale_factor: 2
+script:
+  language: Chinese
+  non_diegetic_music: N/A
+  on_screen_text: Include story-relevant writing. Subtitles and watermarks follow the editor's delivery requirements.
+max_attempts: 3
+```
+
+时长上限由部署工作流能力决定，请求上限按 `frame_multiple/frame_offset` 和帧率计算。`max_attempts` 为每镜生成预算，可设置任意正整数；`upscale_factor` 为正整数，默认 2。单句 `dialogue[].language` 和单镜 `non_diegetic_music_en` 可指定各自语言和配乐。
+
+图片配置的 `api.max_reference_images` 默认 10，按实际服务能力设置。`generation.resize_mode` 可选 `crop`（中心裁切，默认）或 `pad`（等比缩放留边）。`continuity.auto_scene_anchors` 控制自动空间参考；`continuity.reference_priority` 可按首帧资产 ID 指定参考资产优先顺序。剧本和图像描述决定可见人物、背景群众、姿态与构图。
+
 ## 全剧文本、分批补图与交付
 
-集数由 `--episodes` 决定，长剧每集目标时长由 `--episode-minutes` 决定。保留每场 12 镜、每镜 5.875 秒的既有流程，目标时长取最接近的整场数：5 分钟对应 4 场、48 镜、4 分 42 秒。以下 64 是调用参数示例，可按改编密度调整。
+集数由 `--episodes` 决定，长剧每集目标时长由 `--episode-minutes` 决定。场景数、镜头数和时长由对白、动作与剧情需要决定。分场写作可以调整计划中的预计镜头数，组装时统一更新镜号和空间锚点，实际范围保存到运行目录的 `assembled_plans/`。以下 64 是调用参数示例。
 
 ```bash
 EPISODES=64
@@ -105,7 +128,7 @@ season/
 | 输入字段 | 含义 |
 | --- | --- |
 | `package.title / script / shots` | 标题、剧本文件、按观看顺序排列的镜头；路径相对 `package.json` |
-| `shots[].id / prompt` | 稳定镜头 ID、完整有效 H3 prompt；对白使用 `<d>[Chinese]台词</d>` |
+| `shots[].id / prompt` | 稳定镜头 ID、完整有效 H3 prompt；对白按发言顺序使用 `<d>[语言]台词</d>`，默认 Chinese |
 | `duration / width / height / fps / seed` | 计划时长与生成规格；内置 H3 要求 24fps、宽高为 32 的倍数 |
 | `asset_bindings[]` | `asset_id`、`path`、`role`，可选 `prompt_ref`；所有路径需要真实文件 |
 | `role: first_frame` | 内置 I2VA 的唯一首帧；没有首帧时选择 T2VA |
@@ -115,7 +138,7 @@ season/
 
 旧包的 `reference_images` 仍可读取：第一张映射为首帧，其余为审核参考。旧 `negative_prompt` 在创建视频快照时合入有效 prompt 一次。新包直接提供完整 prompt。自定义 workflow 路径相对配置文件解析。
 
-视频 `shots[].width/height` 控制生成画布，`media.width/height` 控制统一输出基准，再乘 `upscale_factor`。当前剧本导出将两者设为 576×1024；B200 的 2 倍超分对应交付 1152×2048。图片配置默认 720×1280，作为输入参考时由视频 workflow 处理。
+视频 `shots[].width/height` 控制生成画布，`media.width/height` 控制统一输出基准，再乘 `upscale_factor`。剧本导出读取制作配置的 `media.width/height/fps`，同时写入镜头包和单集配置。默认 B200 为 576×1024、24fps，2 倍超分对应交付 1152×2048。图片配置默认 720×1280，作为输入参考时由视频 workflow 处理。
 
 ## 到哪里查看运行结果
 

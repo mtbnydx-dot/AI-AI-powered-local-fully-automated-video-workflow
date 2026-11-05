@@ -6,6 +6,6 @@ Rendering style (medium, texture and color treatment only):
 Identity:
 {description}
 
-Show one head-and-shoulders portrait with the entire head visible, facing almost front with a slight three-quarter turn. Keep the eyes, brows, nose, mouth, jaw, skin texture and hairline clear and distinctive. Use an ordinary relaxed expression, even soft illumination, a plain neutral background and simple neutral clothing. That clothing is incidental to the portrait; later wardrobe descriptions determine the character's outfit. Leave story locations, props, dramatic poses and scene lighting to the shot images.
+Unless the identity description specifies another pose or framing, show one head-and-shoulders portrait with the entire head visible, facing almost front with a slight three-quarter turn. Keep the eyes, brows, nose, mouth, jaw, skin texture and hairline clear and distinctive. Use an ordinary relaxed expression, even soft illumination, a plain neutral background and simple neutral clothing. That clothing is incidental to the portrait; later wardrobe descriptions determine the character's outfit. Use the identity description for any required pose, clothing or lighting variation.
 
-Compose for a {width} by {height} pixel canvas. Deliver one portrait without text, panels or watermark.
+Compose for a {width} by {height} pixel canvas. Deliver one portrait; preserve any physical writing specified in the description.

@@ -11,6 +11,7 @@ class APIConfig(BaseModel):
     env_file: str = ".env"
     key_name: str = "QWEN-IMAGE"
     request_timeout_seconds: float = 90
+    max_reference_images: int = Field(default=10, gt=0)
 
 
 class GenerationConfig(BaseModel):
@@ -18,6 +19,7 @@ class GenerationConfig(BaseModel):
     steps: int = Field(default=20, gt=0)
     width: int = Field(default=720, gt=0)
     height: int = Field(default=1280, gt=0)
+    resize_mode: Literal["crop", "pad"] = "crop"
     seed_base: int = 20261101
 
 

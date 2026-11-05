@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import yaml
 from PIL import Image
 
 from imagepipe.models import ImageConfig
@@ -13,7 +14,10 @@ from imagepipe.pipeline import run as run_images
 from imagepipe.plan import compile_plan
 from scriptpipe.batch import export_batch
 from scriptpipe.export import export_season
-from videopipe.inputs import load_package
+from scriptpipe.checks import check_episode
+from videopipe.inputs import load_package, validate_plan
+from videopipe.models import PipelineConfig, ScriptPackage
+from videopipe.subtitles import extract_dialogue
 
 
 def season_fixture():
@@ -135,6 +139,41 @@ class ScriptBatchTests(unittest.TestCase):
         self.assertEqual([(shot.id, shot.seed) for shot in package.shots], [("ep03_s001", 3001)])
         self.assertEqual((later / "season.json").read_bytes(), (early / "season.json").read_bytes())
         self.assertFalse((later / "episodes/ep01").exists())
+
+    def test_export_preserves_configured_canvas_multilingual_turns_and_reference_priority(self):
+        season, episodes = season_fixture()
+        shot = episodes[2]["shots"][0]
+        shot.update(duration=11.5, acceptance_en=[], reference_priority=["garden", "later_guest"], dialogue=[
+            {"speaker_id": "hero", "text_zh": "<d>这件事<cutoff>还没结束</d>", "voiceover": True, "delivery_en": "An urgent inner thought."},
+            {"speaker_id": "later_guest", "text_zh": "2 > 1. OK?", "language": "English", "voiceover": False, "delivery_en": "Quickly."},
+            {"speaker_id": "hero", "text_zh": "别走，我还有事要问你！", "voiceover": False, "delivery_en": "Interrupting."},
+        ])
+        config = PipelineConfig(comfyui={"maximum_duration_seconds": 12}, max_attempts=5,
+                                media={"width": 1024, "height": 576, "upscale_factor": 6},
+                                script={"non_diegetic_music": "Tense strings.", "on_screen_text": "Include the message on the phone."})
+        self.assertEqual(check_episode(episodes[2], season, config=config), [])
+        output = self.root / "configured-export"
+        export_season(season, episodes, output, config)
+        package = ScriptPackage.model_validate(json.loads((output / "episodes/ep03/package.json").read_text()))
+        exported = package.shots[0]
+        self.assertEqual((exported.width, exported.height, exported.fps), (1024, 576, 24))
+        self.assertEqual([(line["language"], line["text"]) for line in extract_dialogue(package.shots)], [
+            ("Chinese", "这件事还没结束"), ("English", "2 > 1. OK?"), ("Chinese", "别走，我还有事要问你！"),
+        ])
+        self.assertNotIn("all visible characters keep their lips closed", exported.prompt)
+        self.assertNotIn("other visible characters listen silently", exported.prompt)
+        self.assertIn("non_diegetic_music: Tense strings.", exported.prompt)
+        self.assertIn("Include the message on the phone.", exported.prompt)
+        self.assertEqual(exported.acceptance, [])
+        validate_plan(package, config)
+        with self.assertRaisesRegex(ValueError, "maximum_duration_seconds"):
+            validate_plan(package, PipelineConfig())
+        slots = json.loads((output / "episodes/ep03/image_slots.json").read_text())["slots"]
+        frame = next(slot for slot in slots if slot["purpose"] == "first_frame")
+        self.assertEqual(frame["reference_asset_ids"][:3], ["location-garden", "identity-later_guest", "character-later_guest-work"])
+        saved = PipelineConfig.model_validate(yaml.safe_load((output / "episodes/ep03/production.yaml").read_text()))
+        self.assertEqual(saved.media, config.media)
+        self.assertEqual(saved.script, config.script)
 
 
 if __name__ == "__main__":

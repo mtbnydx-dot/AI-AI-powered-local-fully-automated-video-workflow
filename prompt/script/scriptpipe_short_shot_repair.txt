@@ -1,20 +1,63 @@
-You are making a precise editorial repair to one text-only Chinese short-drama episode for MiniMax H3. The JSON input contains authoritative source notes, the corrected shared season bible, the existing complete episode and concrete editorial issues. Return one valid JSON object, with no Markdown or commentary. Repair only supported problems. Preserve all good existing material and the complete source story.
+# Task and goal
 
-Return the episode's exact existing id and a shots array containing ONLY complete replacement objects for shots that actually need changes. Each replacement uses the original shot id and every original shot field. Do not return unchanged shots. Do not add or delete shots. To correct chronology, optionally return shot_order containing every existing shot id exactly once in the corrected viewing order. Stable IDs need not be renumbered. Omit shot_order if the order stays unchanged. Optionally return corrected synopsis, start_state or end_state strings only if the repair truly changes their factual wording. Never change the intended episode position or the source's decisive outcomes.
+* Revise the affected shots in one existing short-drama episode using the supplied issues, source, season registry, editor_notes, root_decisions and brief.
+* Resolve concrete story or production problems and explicit editorial requests while preserving effective dialogue, inner monologue, conflict and action.
 
-Example envelope (the shots objects must be complete actual shot objects, not this abbreviated example):
-{"id":"ep01","shots":[],"shot_order":["ep01_s01","ep01_s02"]}
+# Repair
 
-Use the corrected season registry and explicit root_decisions in the payload. Earlier generated episode text or an editor's suggestion can be superseded by those decisions. Resolve the supported underlying problem if a suggestion conflicts with the source. No unregistered character, wardrobe, location or prop IDs. Every important visible character and prop must be bound, including figures at a frame edge. An off-screen person's voice or implied presence does not require a visible cast entry. Do not introduce a new visible unnamed person to evade the registry.
+* Return complete replacements for affected existing shot IDs. Preserve the episode ID and shot set. If chronology needs correction, shot_order may list every existing ID once in the intended order.
+* Adjust dialogue, actions, framing and duration as needed. Duration is positive and within brief.maximum_requested_duration_seconds; canvas follows brief.width/height.
+* Keep neighboring knowledge, relationships, spatial layout and key-object states coherent. Update affected Chinese/English descriptions together.
+* dialogue lists exact speech in turn order and may contain multiple speakers. language is an English language name, defaulting to brief.dialogue_language; delivery_en describes performance. voiceover is a boolean identifying off-screen speech or inner monologue, with its intended audience made clear.
+* first_frame_prompt_en describes the actual start; action_end_zh describes the state at the cut. action_complete records the actual boolean state. Choose camera movement and cuts for the scene.
+* acceptance_en contains the relevant observable story requirements or an empty array. reference_priority orders the important character, location or prop IDs for image compilation.
+* Music and on-screen text follow brief and editorial requirements. non_diegetic_music_en may specify music for this shot.
 
-Every shot remains 5.875 seconds (141 frames at 24fps), one continuous take with one bounded main action or complete speaking turn. Start after unnecessary preparation and land the consequential beat while natural breathing, listening and small movements continue. Complete a needed transfer, placement or other consequential physical change within the shot, then cut to a new response or settled aftermath. Preserve the resulting object location, custody and physical state in later shots until an action changes it, including while the object is outside the crop. Keep time/place changes and editorial cuts between clips.
+# Output
 
-first_frame_prompt_en, action_start_zh and the beginning of visual_en show the same starting pose, object custody, clothing and location. Make the start distinct from the result: an object held before placement is visibly supported by named hands with a gap from its destination; a person about to sit is standing by the available seat. Begin the first-frame paragraph with one concrete crop and angle, describe each actually visible person once and state the assigned garments' literal dominant colors. References supply identity and geography, while the target shot determines visible cast, posture and framing. Keep off-camera people outside this paragraph. Synchronize affected Chinese/English states, action, camera, sound, acceptance and bindings, rather than fixing just one field. action_complete=true means the main beat occurs, not that every small movement stops.
-
-Each shot has zero or one exact Mandarin Chinese line by one speaker, preferably 18 or fewer spoken characters and never above 20 for this timing. No additional dialogue hidden in visual_en or soundscape_en. Non-speakers remain silent. All _en fields are English only. A name, letter or legal fact needed by viewers must be communicated through the exact Chinese line or clearly recognizable action, never by requiring H3 to render legible writing. Keep camera instructions simple, portrait 9:16, and at most one restrained movement.
-
-Preserve the registered person's face, adult age, hair and assigned clothing. Keep every key prop's identity, custody and current physical state consistent with the source and season registry. Clothing and handheld props are distinct states: a costume definition must not force an absent object into someone's hands. Follow the supplied editorial decisions and preserve each character's established role in the story. Keep acceptance_en to the 2 to 4 observable requirements needed for participants, recognizable wardrobe, consequential object states and the main beat; allow ordinary variation in fine facial detail, fabric folds and incidental movement.
-
-Replacement shots retain these fields with the same types: id, scene_id, location_id, time_of_day, characters (list of id/wardrobe_id objects), prop_ids (list), duration (number), beat_zh, action_start_zh, action_end_zh, action_complete (true), cut_reason_zh, visual_en, camera_en, soundscape_en, dialogue (list of speaker_id/text_zh/delivery_en/voiceover objects, voiceover boolean), first_frame_prompt_en, acceptance_en (list of 2–4 English observable criteria).
-
-Before returning, check each reported problem against the actual repaired shots and their neighbors. Verify coherent custody and knowledge, one complete action, first-frame agreement, one speaker, short dialogue and valid registered references. Output only the repair JSON.
+* Return one JSON patch: {"id":"ep01","shots":[]}. shots contains complete replacement objects with all existing fields and types. Unaffected content is preserved by the merge.
+* Optional title, synopsis, start_state and end_state strings can correct episode metadata. Optional shot_order contains every existing ID exactly once.
+* Narrative fields use Chinese, _en descriptions use English and may quote story text, and text_zh uses the specified language. Use the registered IDs and the existing time_of_day values.
+* Each replacement shot follows this structure:
+```json
+{
+  "id": "ep01_s01",
+  "scene_id": "ep01_scene01",
+  "location_id": "registered_location_id",
+  "time_of_day": "morning",
+  "characters": [
+    {
+      "id": "registered_character_id",
+      "wardrobe_id": "that_character_registered_wardrobe_id"
+    }
+  ],
+  "prop_ids": [
+    "registered_prop_id"
+  ],
+  "duration": 4.0,
+  "beat_zh": "Chinese narrative purpose and concrete beat",
+  "action_start_zh": "Chinese observable starting state",
+  "action_end_zh": "切镜时的可观察状态",
+  "action_complete": true,
+  "cut_reason_zh": "本镜头作用及切镜原因",
+  "visual_en": "English description of action, dialogue and reactions",
+  "camera_en": "English precise framing and feasible camera instruction",
+  "soundscape_en": "English environmental and foley sound description",
+  "dialogue": [
+    {
+      "speaker_id": "registered_character_id",
+      "text_zh": "具体台词",
+      "delivery_en": "English delivery and voice instruction",
+      "voiceover": false,
+      "language": "Chinese"
+    }
+  ],
+  "first_frame_prompt_en": "English self-contained description of the actual starting still",
+  "acceptance_en": [],
+  "reference_priority": [
+    "registered_prop_id",
+    "registered_character_id",
+    "registered_location_id"
+  ]
+}
+```

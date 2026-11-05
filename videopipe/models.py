@@ -1,3 +1,4 @@
+import math
 from pathlib import Path
 from typing import Any, Literal
 
@@ -22,8 +23,8 @@ class Shot(InputModel):
     reference_images: list[Path] = Field(default_factory=list)
     asset_bindings: list[AssetBinding] = Field(default_factory=list)
     duration: float = Field(default=3, gt=0)
-    width: int = Field(default=864, gt=0, multiple_of=2)
-    height: int = Field(default=480, gt=0, multiple_of=2)
+    width: int = Field(default=576, gt=0, multiple_of=2)
+    height: int = Field(default=1024, gt=0, multiple_of=2)
     fps: int = Field(default=24, gt=0)
     seed: int = Field(default=42, ge=0)
     parameters: dict[str, Any] = Field(default_factory=dict)
@@ -45,8 +46,19 @@ class ComfyConfig(InputModel):
     parameters: dict[str, Any] = Field(default_factory=lambda: {"steps": 10})
     frame_multiple: int = Field(default=17, gt=0)
     frame_offset: int = Field(default=5, ge=0)
+    maximum_duration_seconds: float = Field(default=10, gt=0, allow_inf_nan=False)
     poll_interval: float = Field(default=2, gt=0)
     timeout: float = Field(default=3600, gt=0)
+
+    def frame_count(self, duration: float, fps: int) -> int:
+        requested = max(self.frame_offset, math.ceil(duration * fps))
+        return requested + (self.frame_offset - requested) % self.frame_multiple
+
+    def maximum_requested_duration(self, fps: int) -> float:
+        frames = math.floor(self.maximum_duration_seconds * fps)
+        frames -= (frames - self.frame_offset) % self.frame_multiple
+        # A tenth-second request stays inside the last supported frame interval.
+        return math.floor(frames / fps * 10) / 10
 
 
 class ReviewConfig(InputModel):
@@ -71,12 +83,18 @@ class ASRConfig(InputModel):
 
 
 class MediaConfig(InputModel):
-    width: int = Field(default=864, gt=0, multiple_of=2)
-    height: int = Field(default=480, gt=0, multiple_of=2)
+    width: int = Field(default=576, gt=0, multiple_of=2)
+    height: int = Field(default=1024, gt=0, multiple_of=2)
     fps: int = Field(default=24, gt=0)
     upscale: Literal["none", "lanczos", "comfyui"] = "comfyui"
-    upscale_factor: int = Field(default=2, ge=1, le=4)
+    upscale_factor: int = Field(default=2, ge=1)
     crf: int = Field(default=18, ge=0, le=51)
+
+
+class ScriptConfig(InputModel):
+    language: str = "Chinese"
+    non_diegetic_music: str = "N/A"
+    on_screen_text: str = "Include story-relevant writing. Subtitles and watermarks follow the editor's delivery requirements."
 
 
 class PipelineConfig(InputModel):
@@ -85,7 +103,8 @@ class PipelineConfig(InputModel):
     review: ReviewConfig = Field(default_factory=ReviewConfig)
     asr: ASRConfig = Field(default_factory=ASRConfig)
     media: MediaConfig = Field(default_factory=MediaConfig)
-    max_attempts: int = Field(default=3, ge=1, le=3)
+    script: ScriptConfig = Field(default_factory=ScriptConfig)
+    max_attempts: int = Field(default=3, ge=1)
     # Read legacy configuration without restoring the removed film-review loop.
     max_film_reviews: int | None = Field(default=None, ge=1, exclude=True)
     workers: int = Field(default=7, ge=1)

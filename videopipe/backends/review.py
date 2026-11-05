@@ -206,8 +206,6 @@ def _parse_response(payload: dict, shots: list[Shot]) -> ReviewResult:
     result = ReviewResult.model_validate_json(_completion_content(payload), strict=True)
     if not result.available:
         return result.model_copy(update={"passed": False})
-    if result.passed and result.issues:
-        raise ValueError("Invalid review result: passed=true with unresolved issues")
     shot_ids = {shot.id for shot in shots}
     issues, warnings = [], list(result.warnings)
     for issue in result.issues:

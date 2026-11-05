@@ -8,10 +8,12 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
+from videopipe.inputs import load_config
+
 from .export import export_season
 from .checks import check_episode
 from .llm import GLMClient, write_json
-from .pipeline import compact_episode, merge_episode_repair, prompt, read_json
+from .pipeline import compact_episode, merge_episode_repair, production_brief, prompt, read_json
 from .long_checks import check_long_plan, check_long_season, check_scene
 
 
@@ -42,24 +44,22 @@ async def run_long(source_path: Path, out: Path, client: GLMClient, *,
     if not math.isfinite(episode_minutes) or episode_minutes <= 0:
         raise ValueError("episode_minutes must be positive and finite")
     review_reasoning_effort = review_reasoning_effort or client.reasoning_effort
+    config = load_config(production_config or Path("configs/b200.yaml"))
     out.mkdir(parents=True, exist_ok=True)
     delivery = delivery or out / "delivery"
     brief = {
-        "fresh_creation": "Create a new long-form adaptation directly from the original novel. No old season plan or shot text is supplied or to be reused.",
+        **production_brief(config),
+        "fresh_creation": "Create a long-form short-drama adaptation from the supplied novel and editorial requirements.",
         "episode_count": episode_count, "requested_episode_minutes": episode_minutes,
         "scene_count_policy": "Choose scenes from source-supported changes in physical location or continuous time block.",
         "shot_count_policy": "Choose shot counts from dramatic progression and motivated camera coverage.",
-        "preferred_duration_seconds": 5, "maximum_duration_seconds": 10,
-        "maximum_requested_duration_seconds": 9.4,
-        "duration_rule": "Choose each duration from speech, action and reaction. About five seconds is a preference, not a fixed duration. Requests up to 9.4 seconds keep H3 frame rounding within ten seconds at 24fps.",
         "target_episode_duration_seconds": episode_minutes * 60,
         "target_season_duration_seconds": episode_count * episode_minutes * 60,
         "runtime_policy": "The requested episode runtime is a target; source-supported events and natural pacing determine the actual runtime, scene count and shot count.",
-        "format": "Naturalistic vertical drama with the source's setting and editor-approved style; portrait 576x1024, 24fps",
-        "language": "Chinese script and exact Mandarin dialogue; English production, audio and image-slot descriptions",
-        "scope": "Text and planned image slots only. No images/audio/video generation.",
-        "dramaturgy": "Every scene advances a specific conflict, discovery, choice or consequence. No repeated recaps, padded silent holds, or extending durations to reach the running time.",
-        "action_rule": "One complete small action or complete speaking turn per shot. Never split a reach, walk, handover or other physical action across shots. A later settled response may be a new shot.",
+        "format": "Drama for Douyin/Hongguo audiences, with the source's setting and editor-approved style; use the configured canvas.",
+        "scope": "Write text and planned image-slot descriptions.",
+        "dramaturgy": "Advance scenes through dialogue, inner monologue, conflict, discoveries, choices and consequences.",
+        "action_rule": "Describe the action, dialogue turns and state at each cut so adjacent shots form a coherent scene.",
         "source_rule": "Preserve the complete source causal chain and ending; expand source-supported choices and follow explicit adaptation decisions in editor notes.",
     }
     state_file = out / "run.json"
@@ -158,7 +158,7 @@ async def run_long(source_path: Path, out: Path, client: GLMClient, *,
                                  {**common, "season": season, "episode_plan": plan,
                                   "scene_plan": scene_plan},
                                  out / "scenes" / plan["id"] / f"{scene_plan['id']}.json",
-                                 lambda candidate: check_scene(candidate, scene_plan, plan, season))
+                                 lambda candidate: check_scene(candidate, scene_plan, plan, season, config=config))
 
         pending = [write_scene(plan, scene_plan) for plan in detailed_plans
                    if not (out / "drafts" / f"{plan['id']}.json").exists()
@@ -170,12 +170,13 @@ async def run_long(source_path: Path, out: Path, client: GLMClient, *,
             if destination.exists():
                 episode = read_json(destination)
             else:
-                episode = {key: plan[key] for key in ("id", "title", "synopsis", "start_state", "end_state")}
-                episode["shots"] = [shot for scene_plan in plan["scenes"]
-                                    for shot in read_json(out / "scenes" / plan["id"] / f"{scene_plan['id']}.json")["shots"]]
-                write_json(destination, episode)
+                scenes = [read_json(out / "scenes" / plan["id"] / f"{scene['id']}.json") for scene in plan["scenes"]]
+                episode = assemble_episode(plan, scenes)
+            sync_scene_plan(episode, plan)
+            write_json(destination, episode)
+            write_json(out / "assembled_plans" / f"{plan['id']}.json", plan)
             episodes.append(episode)
-        write_json(out / "checks" / "assembled.json", check_long_season(episodes, season))
+        write_json(out / "checks" / "assembled.json", check_long_season(episodes, season, config=config))
         if pause("drafts"):
             return state
 
@@ -193,7 +194,11 @@ async def run_long(source_path: Path, out: Path, client: GLMClient, *,
                 for scene_plan in plan["scenes"]:
                     scene = {"episode_id": episode["id"], "scene_id": scene_plan["id"],
                              "shots": candidate["shots"][scene_plan["first_shot_number"] - 1:scene_plan["last_shot_number"]]}
-                    result.extend(check_scene(scene, scene_plan, plan, season))
+                    result.extend(check_scene(scene, scene_plan, plan, season, config=config))
+                if [shot["id"] for shot in candidate["shots"]] != [shot["id"] for shot in episode["shots"]]:
+                    result.append({"severity": "error", "code": "repair_shot_order", "episode_id": episode["id"],
+                                   "shot_id": "", "message": "Local repair preserves the existing shot order.",
+                                   "suggested_fix": "Return complete replacements for the affected shots."})
                 return result
 
             patch = await checked(f"{episode['id']}_{label}", "long_shot_repair_zh",
@@ -202,6 +207,7 @@ async def run_long(source_path: Path, out: Path, client: GLMClient, *,
                                   out / "patches" / f"{episode['id']}_{label}.json", validate,
                                   use_cache=False)
             repaired = merge_episode_repair(episode, patch)
+            sync_scene_plan(repaired, plan)
             write_json(out / "drafts" / f"{episode['id']}.before_{label}.json", episode)
             write_json(out / "drafts" / f"{episode['id']}.json", repaired)
             return repaired
@@ -214,8 +220,7 @@ async def run_long(source_path: Path, out: Path, client: GLMClient, *,
                                         {**common, "season": season, "episode_plan": plan,
                                          "episode": compact_episode(episode)}, review_path)
                 issues = [{**i, "episode_id": episode["id"]} for i in check_episode(
-                    episode, season, maximum_duration_seconds=10, maximum_dialogue_characters=None)
-                          if not (i.get("code") == "shot_count" and i["severity"] == "warning")]
+                    episode, season, config=config)]
                 issues.extend({**issue, "episode_id": episode["id"]} for issue in review.get("issues", []))
                 errors = [issue for issue in issues if issue["severity"] == "error"]
                 if not errors or cycle == repair_rounds:
@@ -250,7 +255,7 @@ async def run_long(source_path: Path, out: Path, client: GLMClient, *,
             local_reviews = [revised_reviews.get(review["episode_id"], review) for review in local_reviews]
             write_json(out / "episode_reviews.json", local_reviews)
 
-        checks = check_long_season(episodes, season)
+        checks = check_long_season(episodes, season, config=config)
         quality = {"status": "text_complete_images_pending", "structural_issues": checks,
                    "episode_reviews": local_reviews, "model_review": season_review,
                    "open_errors": [i for i in checks + season_review.get("issues", [])
@@ -260,15 +265,7 @@ async def run_long(source_path: Path, out: Path, client: GLMClient, *,
         write_json(out / "quality.json", quality)
         if pause("review"):
             return state
-        scene_plans = {scene["id"]: scene for plan in detailed_plans for scene in plan["scenes"]}
-        for episode in episodes:
-            for shot in episode["shots"]:
-                scene = scene_plans[shot["scene_id"]]
-                if scene.get("continuity_en"):
-                    shot["continuity_en"] = scene["continuity_en"]
-                if "anchor_shot_number" in scene:
-                    shot["scene_anchor_shot_id"] = f"{episode['id']}_s{scene['anchor_shot_number']:03}"
-        summary = export_season(season, episodes, delivery, production_config or Path("configs/b200.yaml"))
+        summary = export_season(season, episodes, delivery, config)
         write_json(delivery / "quality.json", quality)
         if quality["open_errors"]:
             summary["status"] = "needs_text_revision_images_pending"
@@ -282,3 +279,33 @@ async def run_long(source_path: Path, out: Path, client: GLMClient, *,
         state.update(status="failed", error=str(exc).replace(client.key, "[REDACTED]"))
         write_json(state_file, state)
         raise
+
+
+def assemble_episode(plan: dict, scenes: list[dict]) -> dict:
+    """Assign final episode IDs after writers choose each scene's shot count."""
+    episode = {key: plan[key] for key in ("id", "title", "synopsis", "start_state", "end_state")}
+    episode["shots"] = []
+    for scene, scene_plan in zip(scenes, plan["scenes"]):
+        first = len(episode["shots"]) + 1
+        ids = {shot["id"]: f"{plan['id']}_s{first + index:03}" for index, shot in enumerate(scene["shots"])}
+        planned_anchor = f"{plan['id']}_s{scene_plan.get('anchor_shot_number', scene_plan['first_shot_number']):03}"
+        anchor = scene.get("anchor_shot_id", planned_anchor)
+        anchor = ids.get(anchor, ids[scene["shots"][0]["id"]])
+        episode["shots"].extend({**shot, "id": ids[shot["id"]], "scene_anchor_shot_id": anchor}
+                                for shot in scene["shots"])
+    return episode
+
+
+def sync_scene_plan(episode: dict, plan: dict) -> None:
+    """Use actual shot ranges and anchor IDs for review, repair and image export."""
+    for scene in plan["scenes"]:
+        members = [(index, shot) for index, shot in enumerate(episode["shots"], 1) if shot["scene_id"] == scene["id"]]
+        ids = {shot["id"]: index for index, shot in members}
+        anchor = members[0][1].get("scene_anchor_shot_id", f"{episode['id']}_s{scene.get('anchor_shot_number', members[0][0]):03}")
+        if anchor not in ids:
+            anchor = members[0][1]["id"]
+        scene.update(first_shot_number=members[0][0], last_shot_number=members[-1][0], anchor_shot_number=ids[anchor])
+        for _, shot in members:
+            shot["scene_anchor_shot_id"] = anchor
+            if scene.get("continuity_en"):
+                shot["continuity_en"] = scene["continuity_en"]

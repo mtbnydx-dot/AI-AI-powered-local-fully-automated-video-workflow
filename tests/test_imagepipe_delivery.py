@@ -41,6 +41,20 @@ class ImageDeliveryTests(unittest.TestCase):
                 self.assertEqual(result.tobytes(), source.tobytes())
             self.assertFalse(record["resized"])
 
+    def test_pad_keeps_edge_content_and_adds_letterboxing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            original = Path(directory) / "original.png"
+            target = Path(directory) / "padded.png"
+            source = Image.new("RGB", (100, 50), "blue")
+            ImageDraw.Draw(source).rectangle((0, 0, 19, 49), fill="red")
+            source.save(original)
+            record = deliver_image(original, target, 100, 100, "pad")
+            with Image.open(target) as result:
+                self.assertEqual(result.getpixel((5, 50)), (255, 0, 0))
+                self.assertEqual(result.getpixel((50, 50)), (0, 0, 255))
+                self.assertEqual(result.getpixel((50, 0)), (0, 0, 0))
+            self.assertEqual(record["crop_box"], [0, 0, 100, 50])
+
 
 if __name__ == "__main__":
     unittest.main()

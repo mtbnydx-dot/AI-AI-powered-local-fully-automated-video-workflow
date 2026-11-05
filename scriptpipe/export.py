@@ -6,6 +6,8 @@ from pathlib import Path
 
 import yaml
 
+from videopipe.inputs import load_config
+from videopipe.models import PipelineConfig, ScriptConfig
 
 _PROMPT = Path(__file__).resolve().parent.parent / "prompt" / "script" / "scriptpipe_export_h3_i2va.txt"
 _ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
@@ -79,17 +81,19 @@ def _shared_slots(season: dict) -> dict[str, dict]:
 
 def _shot_references(shot: dict) -> list[str]:
     references = [
-        asset_id
+        (member["id"], asset_id)
         for member in shot["characters"]
         for asset_id in (_asset_id("identity", member["id"]),
                          _asset_id("character", member["id"], member["wardrobe_id"]))
     ]
-    references.append(_asset_id("location", shot["location_id"]))
-    references.extend(_asset_id("prop", prop_id) for prop_id in shot.get("prop_ids", []))
-    return list(dict.fromkeys(references))
+    references.append((shot["location_id"], _asset_id("location", shot["location_id"])))
+    references.extend((prop_id, _asset_id("prop", prop_id)) for prop_id in shot.get("prop_ids", []))
+    priority = {entity_id: index for index, entity_id in enumerate(shot.get("reference_priority", []))}
+    references.sort(key=lambda item: priority.get(item[0], len(priority)))
+    return list(dict.fromkeys(asset_id for _, asset_id in references))
 
 
-def _compile_prompt(shot: dict, season: dict, template: str) -> str:
+def _compile_prompt(shot: dict, season: dict, template: str, config: ScriptConfig) -> str:
     characters = {item["id"]: item for item in season["characters"]}
     speaker_labels = {item["id"]: f"S{index}" for index, item in enumerate(season["characters"], start=1)}
     speaking = {line["speaker_id"] for line in shot.get("dialogue", [])}
@@ -100,28 +104,32 @@ def _compile_prompt(shot: dict, season: dict, template: str) -> str:
         label = f" ({speaker_labels[member['id']]})" if member["id"] in speaking else ""
         subject_lines.append(f"{member['id']}{label}, wearing {wardrobe['description_en']}")
     dialogue_lines = []
-    for line in shot.get("dialogue", []):
+    for turn, line in enumerate(shot.get("dialogue", []), 1):
         character = characters[line["speaker_id"]]
         speaker = speaker_labels[line["speaker_id"]]
         identity = f"{character['id']}, {character['voice_en']}, {line['delivery_en']} ({speaker})"
+        text = re.sub(r"</?(?:d|scenetrans|cutoff)>", "", line["text_zh"], flags=re.IGNORECASE)
+        language = line.get("language") or config.language
         if line.get("voiceover") is True:
             dialogue_lines.append(
-                f"{identity} says in an off-screen voiceover: <d>[Chinese]{line['text_zh']}</d> "
-                f"If visible, {character['id']}'s lips remain completely closed; all visible characters keep their lips closed."
+                f"Turn {turn}: {identity} says in an off-screen voiceover: <d>[{language}]{text}</d> "
+                f"If visible, {character['id']}'s mouth rests during this voiceover turn."
             )
         else:
             dialogue_lines.append(
-                f"{identity} says: <d>[Chinese]{line['text_zh']}</d> with natural synchronized lip movement."
+                f"Turn {turn}: {identity} says: <d>[{language}]{text}</d> with natural synchronized lip movement during this turn."
             )
     if dialogue_lines:
-        dialogue_lines.append("The other visible characters listen silently and react naturally.")
+        dialogue_lines.insert(0, "Perform the following dialogue turns in order, with the timing and interactions described in the scene.")
     return template.format(
         style=season.get("render_style_en", season["style_en"]).strip(),
-        subjects="\n".join(subject_lines) or "No people are visible.",
+        subjects="\n".join(subject_lines) or "The visual description determines the composition and background cast.",
         visual=shot["visual_en"].strip(),
         camera=shot["camera_en"].strip(),
         dialogue="\n".join(dialogue_lines) or "No speech.",
         soundscape=shot["soundscape_en"].strip(),
+        music=shot.get("non_diegetic_music_en", config.non_diegetic_music),
+        on_screen_text=config.on_screen_text,
     ).strip()
 
 
@@ -164,7 +172,7 @@ def _season_bible(season: dict) -> str:
     return "\n".join(lines)
 
 
-def export_season(season: dict, episodes: list[dict], out_dir: Path, config_path: Path) -> dict:
+def export_season(season: dict, episodes: list[dict], out_dir: Path, config_path: Path | PipelineConfig) -> dict:
     """Write packages with explicit missing image bindings; return delivery counts.
 
     No placeholder image is fabricated. package.json matches ScriptPackage, but
@@ -173,8 +181,9 @@ def export_season(season: dict, episodes: list[dict], out_dir: Path, config_path
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     template = _PROMPT.read_text(encoding="utf-8")
-    config = yaml.safe_load(Path(config_path).read_text(encoding="utf-8"))
-    config.setdefault("media", {}).update({"width": 576, "height": 1024, "fps": 24})
+    production = config_path if isinstance(config_path, PipelineConfig) else load_config(config_path)
+    config = production.model_dump(mode="json")
+    media = production.media
     _write_json(out_dir / "season.json", season)
     (out_dir / "season_bible.md").write_text(_season_bible(season), encoding="utf-8")
     shared_slots = _shared_slots(season)
@@ -230,10 +239,10 @@ def export_season(season: dict, episodes: list[dict], out_dir: Path, config_path
                 }
                 bindings.append({"asset_id": reference_id, "path": reference["path"], "role": "review_only", "prompt_ref": ""})
             package["shots"].append({
-                "id": shot_id, "prompt": _compile_prompt(shot, season, template),
-                "duration": shot["duration"], "width": 576, "height": 1024, "fps": 24,
+                "id": shot_id, "prompt": _compile_prompt(shot, season, template, production.script),
+                "duration": shot["duration"], "width": media.width, "height": media.height, "fps": media.fps,
                 "seed": episode_index * 1000 + shot_index,
-                "asset_bindings": bindings, "acceptance": shot["acceptance_en"],
+                "asset_bindings": bindings, "acceptance": shot.get("acceptance_en", []),
             })
             duration += shot["duration"]
         for slot in episode_slots.values():
@@ -267,7 +276,7 @@ def export_season(season: dict, episodes: list[dict], out_dir: Path, config_path
 1. `screenplay.md`：全季中文剧情、逐字对白与镜头起止动作。
 2. `season_bible.md` / `season.json`：固定人物、服装、声音目标、场景、道具及分集状态。
 3. `episodes/<集ID>/script.md`：单集可读剧本。
-4. `episodes/<集ID>/storyboard.json`：结构化分镜，包含首帧说明、动作闭合与切镜理由。
+4. `episodes/<集ID>/storyboard.json`：结构化分镜，包含首帧说明、动作状态与切镜理由。
 5. `episodes/<集ID>/package.json`：当前 videopipe 格式，含英文 H3 prompt 与中文对白。
 6. `image_slots.json`：全季共享参考槽位和逐镜首帧槽位；单集同名文件说明本集目标路径。
 
@@ -277,11 +286,11 @@ def export_season(season: dict, episodes: list[dict], out_dir: Path, config_path
 - 先按季设定生成固定人物/服装、场景、道具参考，同一人物的不同服装沿用同一身份。
 - 使用 `imagepipe run <本包目录> --config configs/imagepipe.yaml`，按每个首帧的 `reference_asset_ids` 和英文说明制作开场构图；图片尺寸由生图配置决定。
 - 单集 `review_only` 槽位的 `source_path` 指向全季参考，补图时复制到槽位的本集 `path`；每集包由此可独立运行。
-- 首帧必须是实际场面，不能用角色三视图拼图替代；镜头保持 24fps，默认 5.875秒。
+- 首帧呈现镜头开始时的实际场面，镜头时长由对白、动作和节奏决定。
 - 图片齐备后可用 `videopipe run-season <本包目录> --output <运行目录>` 逐集生成视频；各集读取自身 `production.yaml`。
-- 视频画布为 576×1024、24fps；服务、步数、超分、ASR 和批准设置由导出时选定的配置保存在各集 `production.yaml` 中。
+- 视频画布为 {media.width}×{media.height}、{media.fps}fps；服务、步数、超分、ASR 和批准设置由导出时选定的配置保存在各集 `production.yaml` 中。
 
-声音描述属于制作目标，本轮没有验证跨镜声线或口型；时长和对白预算仅为文字阶段检查。
+声音描述属于制作目标，实际对白和口型表现由成片提供依据。
 """
     (out_dir / "README.md").write_text(readme, encoding="utf-8")
     return overview
