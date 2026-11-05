@@ -64,7 +64,7 @@ max_attempts: 3
 
 时长上限由部署工作流能力决定，请求上限按 `frame_multiple/frame_offset` 和帧率计算。`max_attempts` 为每镜生成预算，可设置任意正整数；`upscale_factor` 为正整数，默认 2。单句 `dialogue[].language` 和单镜 `non_diegetic_music_en` 可指定各自语言和配乐。
 
-GPT 默认参数为 `quality: max`、`complexity: high`、`native_width/height: 1152/2048`，输出单张不透明 PNG；交付直接复制 API 原图，保留原始尺寸与文件内容。HTTP 并发和在途窗口均为 2，请求超时 900 秒。`api.max_reference_images` 默认 GPT 16、Qwen 10；GPT 输入支持 PNG/JPEG/WebP，每张小于 50 MB，prompt 最长 32000 字符。GPT 请求使用 generations 或 edits 接口，省略 Qwen 的 steps/seed 及旧模型的 input_fidelity。每次生成请求调用一次，失败记录后可用 resume 续跑。
+GPT 默认参数为 `quality: max`、`complexity: high`、`native_width/height: 1152/2048`，输出单张不透明 PNG；交付直接复制 API 原图，保留原始尺寸与文件内容。HTTP 并发和在途窗口均为 140，请求超时 900 秒。按账户额度的 70% 平滑发送：105 张/分钟、210 万 TPM；单张预估 20,000 token，返回 usage 超过预估时，后续请求按观测峰值降低发送速率。TPM 是基于估算的调度预算，实际限流以服务端为准。限速在单进程内生效；已有运行继续使用保存的配置。`api.max_reference_images` 默认 GPT 16、Qwen 10；GPT 输入支持 PNG/JPEG/WebP，每张小于 50 MB，prompt 最长 32000 字符。GPT 请求使用 generations 或 edits 接口，省略 Qwen 的 steps/seed 及旧模型的 input_fidelity。每次生成请求调用一次，失败记录后可用 resume 续跑。
 
 同一 GPT 运行内的后续任务优先使用 `originals/` 中的原生参考图；已有资产只有交付图时使用交付图。GPT 和 Qwen 均原样交付；续跑时会用已保存原图恢复旧的缩放交付图。`continuity.auto_scene_anchors` 控制自动空间参考；`continuity.reference_priority` 可按首帧资产 ID 指定参考资产优先顺序。剧本和图像描述决定可见人物、背景群众、姿态与构图。
 

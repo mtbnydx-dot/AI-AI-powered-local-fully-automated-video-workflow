@@ -1,0 +1,30 @@
+{
+  "model": "gpt-image-2.6-sunburst",
+  "quality": "max",
+  "size": "1152x2048",
+  "requests": [
+    {
+      "case": "01_identity",
+      "success": true,
+      "api_seconds": 79.326,
+      "reference_count": 0,
+      "estimated_cost_usd": 0.170725
+    },
+    {
+      "case": "02_wardrobe",
+      "success": true,
+      "api_seconds": 69.381,
+      "reference_count": 1,
+      "estimated_cost_usd": 0.182904
+    },
+    {
+      "case": "03_first_frame",
+      "success": true,
+      "api_seconds": 87.129,
+      "reference_count": 5,
+      "estimated_cost_usd": 0.219208
+    }
+  ],
+  "estimated_total_usd": 0.572837,
+  "scope": "Three live Image API requests; no production pipeline changes."
+}

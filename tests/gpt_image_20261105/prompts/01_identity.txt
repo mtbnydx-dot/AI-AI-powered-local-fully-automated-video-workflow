@@ -1,0 +1,11 @@
+Create the canonical identity portrait for one character. This image will define the same person's face across every costume and scene.
+
+Rendering style (medium, texture and color treatment only):
+Photorealistic cinematic vertical video, fine skin and fabric texture, soft natural contrast, restrained saturation, warm skin tones against cool glass and steel, gentle film grain, consistent polished commercial-drama color grade.
+
+Identity:
+Adult woman in her early twenties, oval face, peach-blossom eyes, straight dark brows, small straight nose, soft jaw, fair skin, long natural black hair, tall slender swimmer's build.
+
+Show one head-and-shoulders portrait with the entire head visible, facing almost front with a slight three-quarter turn. Keep the eyes, brows, nose, mouth, jaw, skin texture and hairline clear and distinctive. Use an ordinary relaxed expression, even soft illumination, a plain neutral background and simple neutral clothing. That clothing is incidental to the portrait; later wardrobe descriptions determine the character's outfit. Leave story locations, props, dramatic poses and scene lighting to the shot images.
+
+Compose for a 1152 by 2048 pixel canvas. Deliver one portrait without text, panels or watermark.

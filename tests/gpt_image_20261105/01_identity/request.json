@@ -1,0 +1,18 @@
+{
+  "url": "https://api.openai.com/v1/images/generations",
+  "encoding": "application/json",
+  "payload": {
+    "model": "gpt-image-2.6-sunburst",
+    "prompt": "Create the canonical identity portrait for one character. This image will define the same person's face across every costume and scene.\n\nRendering style (medium, texture and color treatment only):\nPhotorealistic cinematic vertical video, fine skin and fabric texture, soft natural contrast, restrained saturation, warm skin tones against cool glass and steel, gentle film grain, consistent polished commercial-drama color grade.\n\nIdentity:\nAdult woman in her early twenties, oval face, peach-blossom eyes, straight dark brows, small straight nose, soft jaw, fair skin, long natural black hair, tall slender swimmer's build.\n\nShow one head-and-shoulders portrait with the entire head visible, facing almost front with a slight three-quarter turn. Keep the eyes, brows, nose, mouth, jaw, skin texture and hairline clear and distinctive. Use an ordinary relaxed expression, even soft illumination, a plain neutral background and simple neutral clothing. That clothing is incidental to the portrait; later wardrobe descriptions determine the character's outfit. Leave story locations, props, dramatic poses and scene lighting to the shot images.\n\nCompose for a 1152 by 2048 pixel canvas. Deliver one portrait without text, panels or watermark.",
+    "size": "1152x2048",
+    "quality": "max",
+    "n": 1,
+    "output_format": "png",
+    "background": "opaque"
+  },
+  "references_in_upload_order": [],
+  "delivery_size": [
+    720,
+    1280
+  ]
+}

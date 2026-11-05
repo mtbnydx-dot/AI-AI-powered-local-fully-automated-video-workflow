@@ -1,0 +1,22 @@
+Create one camera view of one scene at the opening instant of a video shot. All visible people and objects occupy the same physical space and perspective.
+
+Rendering style:
+Photorealistic cinematic vertical video, fine skin and fabric texture, soft natural contrast, restrained saturation, warm skin tones against cool glass and steel, gentle film grain, consistent polished commercial-drama color grade.
+
+Opening composition and current cast:
+Medium-wide two-shot from the coffee-table side in the hotel suite at night: Xu Zhixia stands screen right beside the desk shredder, holding the last stack of drafts above the slot, in a white cotton shirt and black knee-length pencil skirt; Lu Chengyao sits screen left on the black leather sofa in a black tailored suit, white shirt and dark silk tie, looking at her. Warm floor lamps catch the desk and the window city lights behind them. Exactly 2 people are visible: char_xu_zhixia wears White cotton shirt, black knee-length pencil skirt, sheer dark tights, low black pumps, long hair loose; char_lu_chengyao wears Black tailored suit, white shirt, dark silk tie, gold cufflinks, polished black leather shoes, slicked-back hair. Scene geography: Luxury hotel suite living area: black leather sofa faces a low coffee table, shredder beside the desk, floor-to-ceiling windows with city lights, and a closed bedroom door at the back; warm floor lamps plus city glow; camera stays on the coffee-table side so Xu is screen right at the shredder and Lu screen left on the sofa.
+
+Reference assignments, in upload order:
+<image1>: facial identity and hairline of char_xu_zhixia.
+<image2>: clothing design for char_xu_zhixia, outfit wd_xu_white_blouse_black_skirt.
+<image3>: facial identity and hairline of char_lu_chengyao.
+<image4>: clothing design for char_lu_chengyao, outfit wd_lu_black_suit.
+<image5>: architecture and fixed furnishings of loc_huicheng_suite.
+
+Render each listed person once. Their identity and wardrobe references are views of the same individual: use the identity for the face and the target wardrobe for clothing, including its specified colors. The opening composition determines the visible cast. Any partial figure at a frame edge belongs to its named person, rather than an additional copy.
+
+Location references establish the empty set. Scene references supply fixed geography and light; their people, poses and wide framing are context, not additions to the target composition. Reframe at the requested camera distance and crop, allowing off-camera people and furniture to remain outside the image. Compose the target cast with natural scale, contact and occlusion.
+
+Show only the stated starting state. Make important object support and custody readable: an object held before placement is supported by the named hands and visibly separated from its destination. Prop references define appearance; the opening description defines quantity, position and current state. Leave the subsequent movement and result to the video.
+
+Deliver a single 1152 by 2048 image of this scene, with continuous geometry and no panel divisions, inset portraits, captions or watermark.

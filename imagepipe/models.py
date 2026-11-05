@@ -27,8 +27,11 @@ class GenerationConfig(BaseModel):
 
 
 class SchedulerConfig(BaseModel):
-    http_concurrency: int = Field(default=2, gt=0)
-    max_active_jobs: int = Field(default=2, gt=0)
+    http_concurrency: int = Field(default=140, gt=0)
+    max_active_jobs: int = Field(default=140, gt=0)
+    images_per_minute: int = Field(default=105, gt=0)
+    tokens_per_minute: int = Field(default=2_100_000, gt=0)
+    estimated_tokens_per_image: int = Field(default=20_000, gt=0)
     poll_interval_seconds: float = Field(default=5, gt=0)
     max_attempts: int = Field(default=3, gt=0)
 

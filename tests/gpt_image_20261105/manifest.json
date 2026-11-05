@@ -1,0 +1,57 @@
+{
+  "source_package": "/home/jzxu/code/AI-AI-powered-local-fully-automated-video-workflow/tmp/ep01_ep10_handoff/project",
+  "prompt_source": "imagepipe.plan.compile_plan",
+  "native_size": [
+    1152,
+    2048
+  ],
+  "delivery_size": [
+    720,
+    1280
+  ],
+  "cases": {
+    "01_identity": {
+      "asset_id": "identity-char_xu_zhixia",
+      "mode": "text",
+      "prompt": "Create the canonical identity portrait for one character. This image will define the same person's face across every costume and scene.\n\nRendering style (medium, texture and color treatment only):\nPhotorealistic cinematic vertical video, fine skin and fabric texture, soft natural contrast, restrained saturation, warm skin tones against cool glass and steel, gentle film grain, consistent polished commercial-drama color grade.\n\nIdentity:\nAdult woman in her early twenties, oval face, peach-blossom eyes, straight dark brows, small straight nose, soft jaw, fair skin, long natural black hair, tall slender swimmer's build.\n\nShow one head-and-shoulders portrait with the entire head visible, facing almost front with a slight three-quarter turn. Keep the eyes, brows, nose, mouth, jaw, skin texture and hairline clear and distinctive. Use an ordinary relaxed expression, even soft illumination, a plain neutral background and simple neutral clothing. That clothing is incidental to the portrait; later wardrobe descriptions determine the character's outfit. Leave story locations, props, dramatic poses and scene lighting to the shot images.\n\nCompose for a 1152 by 2048 pixel canvas. Deliver one portrait without text, panels or watermark.",
+      "reference_ids": [],
+      "target_path": "/home/jzxu/code/AI-AI-powered-local-fully-automated-video-workflow/tmp/ep01_ep10_handoff/project/assets/review/characters/identity-char_xu_zhixia.png",
+      "seed": 20261101,
+      "existing_reference_paths": []
+    },
+    "02_wardrobe": {
+      "asset_id": "character-char_xu_zhixia-wd_xu_white_blouse_black_skirt",
+      "mode": "edit",
+      "prompt": "Dress the person in the identity reference in the target outfit. Keep that person's facial structure, age, skin and hairline.\n\nRendering style:\nPhotorealistic cinematic vertical video, fine skin and fabric texture, soft natural contrast, restrained saturation, warm skin tones against cool glass and steel, gentle film grain, consistent polished commercial-drama color grade.\n\nTarget outfit:\nWhite cotton shirt, black knee-length pencil skirt, sheer dark tights, low black pumps, long hair loose.\n\nReference assignments, in upload order:\nthe reference image: facial identity and hairline of char_xu_zhixia.\n\nShow this one person standing naturally against a plain neutral background, with the full outfit visible and the face clear. Use the identity portrait for facial structure and the target description for the complete outfit, including its dominant visible colors, materials, headwear, hair arrangement and accessories. Replace the portrait's incidental clothing with that outfit; a material or costume category does not override an explicitly specified color. Keep the head and garment hem inside the frame with a little margin. Light the person evenly so garment details and facial features remain legible.\n\nDeliver one 1152 by 2048 image of the dressed person, without a story setting, multiple views, panels or watermark.",
+      "reference_ids": [
+        "identity-char_xu_zhixia"
+      ],
+      "target_path": "/home/jzxu/code/AI-AI-powered-local-fully-automated-video-workflow/tmp/ep01_ep10_handoff/project/assets/review/characters/character-char_xu_zhixia-wd_xu_white_blouse_black_skirt.png",
+      "seed": 20261102,
+      "existing_reference_paths": [
+        "/home/jzxu/code/AI-AI-powered-local-fully-automated-video-workflow/tmp/ep01_ep10_handoff/project/assets/review/characters/identity-char_xu_zhixia.png"
+      ]
+    },
+    "03_first_frame": {
+      "asset_id": "first-frame-ep01-ep01_s001",
+      "mode": "reference",
+      "prompt": "Create one camera view of one scene at the opening instant of a video shot. All visible people and objects occupy the same physical space and perspective.\n\nRendering style:\nPhotorealistic cinematic vertical video, fine skin and fabric texture, soft natural contrast, restrained saturation, warm skin tones against cool glass and steel, gentle film grain, consistent polished commercial-drama color grade.\n\nOpening composition and current cast:\nMedium-wide two-shot from the coffee-table side in the hotel suite at night: Xu Zhixia stands screen right beside the desk shredder, holding the last stack of drafts above the slot, in a white cotton shirt and black knee-length pencil skirt; Lu Chengyao sits screen left on the black leather sofa in a black tailored suit, white shirt and dark silk tie, looking at her. Warm floor lamps catch the desk and the window city lights behind them. Exactly 2 people are visible: char_xu_zhixia wears White cotton shirt, black knee-length pencil skirt, sheer dark tights, low black pumps, long hair loose; char_lu_chengyao wears Black tailored suit, white shirt, dark silk tie, gold cufflinks, polished black leather shoes, slicked-back hair. Scene geography: Luxury hotel suite living area: black leather sofa faces a low coffee table, shredder beside the desk, floor-to-ceiling windows with city lights, and a closed bedroom door at the back; warm floor lamps plus city glow; camera stays on the coffee-table side so Xu is screen right at the shredder and Lu screen left on the sofa.\n\nReference assignments, in upload order:\n<image1>: facial identity and hairline of char_xu_zhixia.\n<image2>: clothing design for char_xu_zhixia, outfit wd_xu_white_blouse_black_skirt.\n<image3>: facial identity and hairline of char_lu_chengyao.\n<image4>: clothing design for char_lu_chengyao, outfit wd_lu_black_suit.\n<image5>: architecture and fixed furnishings of loc_huicheng_suite.\n\nRender each listed person once. Their identity and wardrobe references are views of the same individual: use the identity for the face and the target wardrobe for clothing, including its specified colors. The opening composition determines the visible cast. Any partial figure at a frame edge belongs to its named person, rather than an additional copy.\n\nLocation references establish the empty set. Scene references supply fixed geography and light; their people, poses and wide framing are context, not additions to the target composition. Reframe at the requested camera distance and crop, allowing off-camera people and furniture to remain outside the image. Compose the target cast with natural scale, contact and occlusion.\n\nShow only the stated starting state. Make important object support and custody readable: an object held before placement is supported by the named hands and visibly separated from its destination. Prop references define appearance; the opening description defines quantity, position and current state. Leave the subsequent movement and result to the video.\n\nDeliver a single 1152 by 2048 image of this scene, with continuous geometry and no panel divisions, inset portraits, captions or watermark.",
+      "reference_ids": [
+        "identity-char_xu_zhixia",
+        "character-char_xu_zhixia-wd_xu_white_blouse_black_skirt",
+        "identity-char_lu_chengyao",
+        "character-char_lu_chengyao-wd_lu_black_suit",
+        "location-loc_huicheng_suite"
+      ],
+      "target_path": "/home/jzxu/code/AI-AI-powered-local-fully-automated-video-workflow/tmp/ep01_ep10_handoff/project/episodes/ep01/assets/first_frames/ep01_s001.png",
+      "seed": 20261286,
+      "existing_reference_paths": [
+        "/home/jzxu/code/AI-AI-powered-local-fully-automated-video-workflow/tmp/ep01_ep10_handoff/project/assets/review/characters/identity-char_xu_zhixia.png",
+        "/home/jzxu/code/AI-AI-powered-local-fully-automated-video-workflow/tmp/ep01_ep10_handoff/project/assets/review/characters/character-char_xu_zhixia-wd_xu_white_blouse_black_skirt.png",
+        "/home/jzxu/code/AI-AI-powered-local-fully-automated-video-workflow/tmp/ep01_ep10_handoff/project/assets/review/characters/identity-char_lu_chengyao.png",
+        "/home/jzxu/code/AI-AI-powered-local-fully-automated-video-workflow/tmp/ep01_ep10_handoff/project/assets/review/characters/character-char_lu_chengyao-wd_lu_black_suit.png",
+        "/home/jzxu/code/AI-AI-powered-local-fully-automated-video-workflow/tmp/ep01_ep10_handoff/project/assets/review/locations/location-loc_huicheng_suite.png"
+      ]
+    }
+  }
+}

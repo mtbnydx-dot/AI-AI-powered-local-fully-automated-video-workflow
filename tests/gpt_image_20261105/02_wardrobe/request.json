@@ -1,0 +1,28 @@
+{
+  "url": "https://api.openai.com/v1/images/edits",
+  "encoding": "multipart/form-data",
+  "payload": {
+    "model": "gpt-image-2.6-sunburst",
+    "prompt": "Dress the person in the identity reference in the target outfit. Keep that person's facial structure, age, skin and hairline.\n\nRendering style:\nPhotorealistic cinematic vertical video, fine skin and fabric texture, soft natural contrast, restrained saturation, warm skin tones against cool glass and steel, gentle film grain, consistent polished commercial-drama color grade.\n\nTarget outfit:\nWhite cotton shirt, black knee-length pencil skirt, sheer dark tights, low black pumps, long hair loose.\n\nReference assignments, in upload order:\nthe reference image: facial identity and hairline of char_xu_zhixia.\n\nShow this one person standing naturally against a plain neutral background, with the full outfit visible and the face clear. Use the identity portrait for facial structure and the target description for the complete outfit, including its dominant visible colors, materials, headwear, hair arrangement and accessories. Replace the portrait's incidental clothing with that outfit; a material or costume category does not override an explicitly specified color. Keep the head and garment hem inside the frame with a little margin. Light the person evenly so garment details and facial features remain legible.\n\nDeliver one 1152 by 2048 image of the dressed person, without a story setting, multiple views, panels or watermark.",
+    "size": "1152x2048",
+    "quality": "max",
+    "n": 1,
+    "output_format": "png",
+    "background": "opaque"
+  },
+  "references_in_upload_order": [
+    {
+      "path": "/home/jzxu/code/AI-AI-powered-local-fully-automated-video-workflow/tests/gpt_image_20261105/01_identity/original.png",
+      "size": [
+        1152,
+        2048
+      ],
+      "bytes": 3998718,
+      "mime_type": "image/png"
+    }
+  ],
+  "delivery_size": [
+    720,
+    1280
+  ]
+}

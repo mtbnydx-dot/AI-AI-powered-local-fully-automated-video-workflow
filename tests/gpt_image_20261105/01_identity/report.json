@@ -1,0 +1,66 @@
+{
+  "started_at": "2026-11-05T10:15:52.818595+00:00",
+  "requested_model": "gpt-image-2.6-sunburst",
+  "quality": "max",
+  "requested_size": "1152x2048",
+  "reference_count": 0,
+  "endpoint": "/v1/images/generations",
+  "success": true,
+  "http_status": 200,
+  "request_id": "req_1dda55f5f017412bafba399456cfbe8c",
+  "api_seconds": 79.326,
+  "response_metadata": {
+    "created": 1793873830,
+    "background": "opaque",
+    "output_format": "png",
+    "quality": "max",
+    "safety_identifier": null,
+    "size": "1152x2048",
+    "usage": {
+      "input_tokens": 245,
+      "input_tokens_details": {
+        "image_tokens": 0,
+        "text_tokens": 245
+      },
+      "output_tokens": 5650,
+      "output_tokens_details": {
+        "image_tokens": 5650,
+        "text_tokens": 0
+      },
+      "total_tokens": 5895
+    },
+    "data": [
+      {
+        "generation_id": "7709fc24-1f79-43e2-91ce-5b3191d8692b"
+      }
+    ]
+  },
+  "estimated_cost_usd": {
+    "text_input": 0.001225,
+    "image_input": 0.0,
+    "image_output": 0.1695,
+    "total": 0.170725,
+    "basis": "Standard USD token rates, 2026-11-05; estimate, not an invoice"
+  },
+  "delivery": {
+    "source_size": [
+      1152,
+      2048
+    ],
+    "output_size": [
+      720,
+      1280
+    ],
+    "crop_box": [
+      0.0,
+      0.0,
+      1152.0,
+      2048.0
+    ],
+    "resized": true,
+    "mode": "RGB"
+  },
+  "original": "/home/jzxu/code/AI-AI-powered-local-fully-automated-video-workflow/tests/gpt_image_20261105/01_identity/original.png",
+  "delivered": "/home/jzxu/code/AI-AI-powered-local-fully-automated-video-workflow/tests/gpt_image_20261105/01_identity/delivered.png",
+  "elapsed_seconds": 80.132
+}

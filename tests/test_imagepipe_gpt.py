@@ -5,6 +5,7 @@ import io
 import json
 import tempfile
 import threading
+import time
 import unittest
 from email.parser import BytesParser
 from email.policy import default
@@ -13,6 +14,7 @@ from pathlib import Path
 
 from PIL import Image
 
+from imagepipe.client import ImageClient
 from imagepipe.cli import _load_config
 from imagepipe.models import CopyTask, ImageConfig, ImagePlan, ImageTask
 from imagepipe.pipeline import load_run, run
@@ -122,6 +124,28 @@ class GPTImagePipelineTests(unittest.TestCase):
         self.assertEqual(records["wardrobe"]["attempts"], 1)
         self.assertNotIn("job_id", records["frame"])
         self.assertEqual((run_dir / "originals/identity.png").read_bytes(), self.server.image)
+
+    def test_concurrent_requests_are_paced_and_usage_updates_budget(self):
+        self.config.scheduler.images_per_minute = 600
+        self.config.scheduler.tokens_per_minute = 12_000_000
+        self.config.scheduler.estimated_tokens_per_image = 100
+
+        async def exercise():
+            async with ImageClient(self.config) as client:
+                started = time.monotonic()
+                await asyncio.gather(*(client.submit(
+                    ImageTask(str(i), "text", "A portrait", [], str(self.root / f"{i}.png"), i), []
+                ) for i in range(3)))
+                self.assertGreaterEqual(time.monotonic() - started, 0.19)
+                self.assertEqual(client.tokens_per_image, 300)
+                client.config.scheduler.tokens_per_minute = 60_000
+                await client._pace_gpt_request()
+                started = time.monotonic()
+                await client._pace_gpt_request()
+                self.assertGreaterEqual(time.monotonic() - started, 0.29)
+
+        asyncio.run(exercise())
+        self.assertEqual(len(self.server.requests), 3)
 
     def test_api_error_is_recorded_and_blocks_dependent(self):
         plan = ImagePlan(str(self.root), [

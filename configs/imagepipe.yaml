@@ -12,8 +12,11 @@ generation:
   native_width: 1152
   native_height: 2048
 scheduler:
-  http_concurrency: 2
-  max_active_jobs: 2
+  http_concurrency: 140
+  max_active_jobs: 140
+  images_per_minute: 105
+  tokens_per_minute: 2100000
+  estimated_tokens_per_image: 20000
   poll_interval_seconds: 5
 continuity:
   auto_scene_anchors: true

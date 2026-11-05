@@ -6,6 +6,7 @@ import asyncio
 import mimetypes
 import os
 import re
+import time
 from contextlib import ExitStack
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -23,6 +24,9 @@ class ImageClient:
         self.config = config
         self.base_url = config.api.base_url.rstrip("/")
         self.key = _load_key(Path(config.api.env_file), config.api.key_name)
+        self.rate_lock = asyncio.Lock()
+        self.next_request_at = 0.0
+        self.tokens_per_image = config.scheduler.estimated_tokens_per_image
         self.semaphore = asyncio.Semaphore(config.scheduler.http_concurrency)
         self.http = httpx.AsyncClient(
             timeout=httpx.Timeout(config.api.request_timeout_seconds, connect=30),
@@ -43,7 +47,7 @@ class ImageClient:
         if self.config.provider == "gpt":
             return await self._submit_gpt(task, references)
         generation = self.config.generation
-        # The API requires 32-pixel multiples; delivery restores the configured size.
+        # The API requires 32-pixel multiples; delivery preserves the returned image.
         native_width = max(256, ((generation.width + 31) // 32) * 32)
         native_height = max(256, ((generation.height + 31) // 32) * 32)
         payload = {
@@ -90,6 +94,7 @@ class ImageClient:
         else:
             response = await self._request("POST", "/v1/images/generations", json=payload)
         result = response.json()
+        self.tokens_per_image = max(self.tokens_per_image, result.get("usage", {}).get("total_tokens", 0))
         result["request_id"] = response.headers.get("x-request-id")
         return result
 
@@ -114,6 +119,8 @@ class ImageClient:
         if (target.scheme, target.netloc) == (api_origin.scheme, api_origin.netloc):
             headers["Authorization"] = "Bearer " + self.key
         async with self.semaphore:
+            if self.config.provider == "gpt" and method == "POST":
+                await self._pace_gpt_request()
             response = await self.http.request(method, url, headers=headers, **kwargs)
         if not response.is_success:
             detail = response.text.replace(self.key, "[REDACTED]")[:2000]
@@ -122,6 +129,17 @@ class ImageClient:
                 request=response.request, response=response,
             )
         return response
+
+    async def _pace_gpt_request(self) -> None:
+        scheduler = self.config.scheduler
+        async with self.rate_lock:
+            delay = self.next_request_at - time.monotonic()
+            if delay > 0:
+                await asyncio.sleep(delay)
+            # Token usage is known after completion; reserve the observed peak, initially 20k.
+            interval = max(60 / scheduler.images_per_minute,
+                           60 * self.tokens_per_image / scheduler.tokens_per_minute)
+            self.next_request_at = time.monotonic() + interval
 
 
 def _validate_gpt_inputs(prompt: str, references: list[Path], limit: int) -> list[str]:
