@@ -12,12 +12,12 @@
 | [scriptpipe_short_episode_write.txt](script/scriptpipe_short_episode_write.txt) | 同上：单集分镜写作 |
 | [scriptpipe_short_season_review.txt](script/scriptpipe_short_season_review.txt) | 同上：整季文字审核 |
 | [scriptpipe_short_shot_repair.txt](script/scriptpipe_short_shot_repair.txt) | 同上：指定镜头局部修正 |
-| [scriptpipe_long_season_plan.txt](script/scriptpipe_long_season_plan.txt) | `scriptpipe/long_pipeline.py`：长剧整季设定 |
-| [scriptpipe_long_episode_plan.txt](script/scriptpipe_long_episode_plan.txt) | 同上：分集场次、镜号范围和剧情节拍 |
-| [scriptpipe_long_scene_write.txt](script/scriptpipe_long_scene_write.txt) | 同上：按场写镜头 |
-| [scriptpipe_long_episode_review.txt](script/scriptpipe_long_episode_review.txt) | 同上：单集文字审核 |
-| [scriptpipe_long_season_review.txt](script/scriptpipe_long_season_review.txt) | 同上：跨集因果与连续性审核 |
-| [scriptpipe_long_shot_repair.txt](script/scriptpipe_long_shot_repair.txt) | 同上：长剧镜头局部补丁 |
+| [scriptpipe_long_season_plan_zh.txt](script/scriptpipe_long_season_plan_zh.txt) | `scriptpipe/long_pipeline.py`：长剧整季设定 |
+| [scriptpipe_long_episode_plan_zh.txt](script/scriptpipe_long_episode_plan_zh.txt) | 同上：分集场次、镜号范围和剧情节拍 |
+| [scriptpipe_long_scene_write_zh.txt](script/scriptpipe_long_scene_write_zh.txt) | 同上：按场写镜头 |
+| [scriptpipe_long_episode_review_zh.txt](script/scriptpipe_long_episode_review_zh.txt) | 同上：单集文字审核 |
+| [scriptpipe_long_season_review_zh.txt](script/scriptpipe_long_season_review_zh.txt) | 同上：跨集因果与连续性审核 |
+| [scriptpipe_long_shot_repair_zh.txt](script/scriptpipe_long_shot_repair_zh.txt) | 同上：长剧镜头局部补丁 |
 | [scriptpipe_export_h3_i2va.txt](script/scriptpipe_export_h3_i2va.txt) | `scriptpipe/export.py`：将分镜编译为 H3 输入 |
 | [scriptpipe_json_retry.txt](script/scriptpipe_json_retry.txt) | `scriptpipe/llm.py`：JSON 解析失败后的重试说明 |
 

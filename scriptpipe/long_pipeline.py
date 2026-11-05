@@ -126,7 +126,7 @@ async def run_long(source_path: Path, out: Path, client: GLMClient, *,
         if season_path.exists():
             season = read_json(season_path)
         else:
-            season = await client.complete("long_season", prompt("long_season_plan"), common)
+            season = await client.complete("long_season", prompt("long_season_plan_zh"), common)
             write_json(season_path, season)
         plans = season["episodes"]
         if [item["id"] for item in plans] != [f"ep{i:02}" for i in range(1, episode_count + 1)]:
@@ -144,7 +144,7 @@ async def run_long(source_path: Path, out: Path, client: GLMClient, *,
                                        "message": f"Episode plan requires nonempty {field}.",
                                        "suggested_fix": f"Supply {field} before generating scenes."})
                 return issues
-            return await checked(f"{plan['id']}_plan", "long_episode_plan",
+            return await checked(f"{plan['id']}_plan", "long_episode_plan_zh",
                                  {**common, "season": season, "episode_plan": plan},
                                  out / "plans" / f"{plan['id']}.json",
                                  validate)
@@ -154,7 +154,7 @@ async def run_long(source_path: Path, out: Path, client: GLMClient, *,
             return state
 
         async def write_scene(plan, scene_plan):
-            return await checked(f"{plan['id']}_{scene_plan['id']}", "long_scene_write",
+            return await checked(f"{plan['id']}_{scene_plan['id']}", "long_scene_write_zh",
                                  {**common, "season": season, "episode_plan": plan,
                                   "scene_plan": scene_plan},
                                  out / "scenes" / plan["id"] / f"{scene_plan['id']}.json",
@@ -196,7 +196,7 @@ async def run_long(source_path: Path, out: Path, client: GLMClient, *,
                     result.extend(check_scene(scene, scene_plan, plan, season))
                 return result
 
-            patch = await checked(f"{episode['id']}_{label}", "long_shot_repair",
+            patch = await checked(f"{episode['id']}_{label}", "long_shot_repair_zh",
                                   {**common, "season": season, "episode": episode,
                                    "episode_plan": plan, "issues": issues, "adjacent_episode_plans": plans},
                                   out / "patches" / f"{episode['id']}_{label}.json", validate,
@@ -210,7 +210,7 @@ async def run_long(source_path: Path, out: Path, client: GLMClient, *,
             plan = next(item for item in detailed_plans if item["id"] == episode["id"])
             for cycle in range(repair_rounds + 1):
                 review_path = out / "reviews" / f"{episode['id']}_{cycle}.json"
-                review = await reviewed(f"{episode['id']}_review_{cycle}", "long_episode_review",
+                review = await reviewed(f"{episode['id']}_review_{cycle}", "long_episode_review_zh",
                                         {**common, "season": season, "episode_plan": plan,
                                          "episode": compact_episode(episode)}, review_path)
                 issues = [{**i, "episode_id": episode["id"]} for i in check_episode(
@@ -229,7 +229,7 @@ async def run_long(source_path: Path, out: Path, client: GLMClient, *,
         season_review = {}
         for cycle in range(repair_rounds + 1):
             review_path = out / "reviews" / f"season_{cycle}.json"
-            season_review = await reviewed(f"season_review_{cycle}", "long_season_review",
+            season_review = await reviewed(f"season_review_{cycle}", "long_season_review_zh",
                                            {**common, "season": season,
                                             "episodes": [story_evidence(episode) for episode in episodes]}, review_path)
             errors = [issue for issue in season_review.get("issues", []) if issue["severity"] == "error"]
