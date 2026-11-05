@@ -12,7 +12,7 @@ source .venv/bin/activate
 python -m pip install -e '.[asr]'
 ```
 
-`scriptpipe` 默认使用 Ark `deepseek-v4.1-flash`、环境变量或 `.env` 中的 `DEEPSEEK-KEY`，endpoint 为 `https://ark.cn-beijing.volces.com/api/coding/v3`。请求显式开启 thinking；规划、写作、修复、审阅均继承 `--reasoning-effort high`。`--model glm-5.3` 自动选择 `GLMKEY`，也可通过 `--key-name` 指定。`--max-tokens` 默认 65536，包含思考与最终输出的预算。`imagepipe` 使用 [配置](../configs/imagepipe.yaml) 的服务地址、`env_file` 和 `key_name`，默认键名 `QWEN-IMAGE`。本地视频服务准备见 [部署](deployment.md)。
+`scriptpipe` 默认使用 Ark `deepseek-v4.1-flash`、环境变量或 `.env` 中的 `DEEPSEEK-KEY`，endpoint 为 `https://ark.cn-beijing.volces.com/api/coding/v3`。请求显式开启 thinking；规划、写作、修复、审阅均继承 `--reasoning-effort high`。`--model glm-5.3` 自动选择 `GLMKEY`，也可通过 `--key-name` 指定。`--max-tokens` 默认 65536，包含思考与最终输出的预算。`imagepipe` 默认使用官方 GPT Image 2.6 Sunburst，读取环境变量或 `.env` 中的 `OPENAI`，配置见 [imagepipe.yaml](../configs/imagepipe.yaml)。`--provider qwen` 使用原本地部署服务，键名为 `QWEN-IMAGE`，配置见 [imagepipe_qwen.yaml](../configs/imagepipe_qwen.yaml)。本地视频服务准备见 [部署](deployment.md)。
 
 ## 顺序运行
 
@@ -27,6 +27,9 @@ imagepipe run /data/season --config configs/imagepipe.yaml --output /data/runs/i
 imagepipe status /data/runs/images
 imagepipe resume /data/runs/images
 
+# 选择原 Qwen 图片服务
+imagepipe run /data/season --provider qwen --output /data/runs/images-qwen
+
 # 先验证一集，再运行整季；每集读取自身 production.yaml
 videopipe validate /data/season/episodes/ep01/package.json \
   --config /data/season/episodes/ep01/production.yaml
@@ -38,7 +41,7 @@ videopipe collect /data/runs/video-season
 
 `--notes` 可省略。短剧交付到 `<output>/delivery/`；长剧可以指定 `--delivery`，也可用 `--stop-after season|plans|drafts|review` 在阶段结束时暂停。剧本续跑使用相同命令和输出目录，复用已存阶段；调整素材、创作 brief 或模板后用新输出目录开始，避免复用旧稿。
 
-图片的 `run` 遇到已有 `tasks.json` 会读取已存计划；目标图片存在即复用。全剧包内的状态字段保留文字导出时的快照；分批交付包在图片齐备后写入实际交付状态。视频入口按实际文件是否存在校验。
+图片的 `run` 遇到已有 `tasks.json` 会读取已存计划；目标图片存在即复用。默认运行目录为 `runs/imagepipe/<包名>/<provider>/`，按集运行再追加集范围。切换后端时使用对应运行目录；`resume` 使用原记录的后端，兼容旧 Qwen 任务。`--config` 可指定对应后端的自定义 YAML，与显式 `--provider` 保持一致。全剧包内的状态字段保留文字导出时的快照；分批交付包在图片齐备后写入实际交付状态。视频入口按实际文件是否存在校验。
 
 ## 可配置的制作参数
 
@@ -61,7 +64,9 @@ max_attempts: 3
 
 时长上限由部署工作流能力决定，请求上限按 `frame_multiple/frame_offset` 和帧率计算。`max_attempts` 为每镜生成预算，可设置任意正整数；`upscale_factor` 为正整数，默认 2。单句 `dialogue[].language` 和单镜 `non_diegetic_music_en` 可指定各自语言和配乐。
 
-图片配置的 `api.max_reference_images` 默认 10，按实际服务能力设置。`generation.resize_mode` 可选 `crop`（中心裁切，默认）或 `pad`（等比缩放留边）。`continuity.auto_scene_anchors` 控制自动空间参考；`continuity.reference_priority` 可按首帧资产 ID 指定参考资产优先顺序。剧本和图像描述决定可见人物、背景群众、姿态与构图。
+GPT 默认参数为 `quality: max`、`complexity: high`、`native_width/height: 1152/2048`，输出单张不透明 PNG；交付 `width/height` 为 720/1280。HTTP 并发和在途窗口均为 2，请求超时 900 秒。`api.max_reference_images` 默认 GPT 16、Qwen 10；GPT 输入支持 PNG/JPEG/WebP，每张小于 50 MB，prompt 最长 32000 字符。GPT 请求使用 generations 或 edits 接口，省略 Qwen 的 steps/seed 及旧模型的 input_fidelity。每次生成请求调用一次，失败记录后可用 resume 续跑。
+
+同一 GPT 运行内的后续任务优先使用 `originals/` 中的原生参考图；已有资产只有交付图时使用交付图。`generation.resize_mode` 可选 `crop`（中心裁切，默认）或 `pad`（等比缩放留边）。`continuity.auto_scene_anchors` 控制自动空间参考；`continuity.reference_priority` 可按首帧资产 ID 指定参考资产优先顺序。剧本和图像描述决定可见人物、背景群众、姿态与构图。
 
 ## 全剧文本、分批补图与交付
 

@@ -1,18 +1,22 @@
+provider: gpt
 api:
-  base_url: https://api.zlk7301.com
+  base_url: https://api.openai.com
   env_file: .env
-  key_name: QWEN-IMAGE
-  max_reference_images: 10
+  key_name: OPENAI
+  request_timeout_seconds: 900
+  max_reference_images: 16
 generation:
-  model: qwen-image-2.1
-  steps: 20
+  model: gpt-image-2.6-sunburst
+  quality: max
+  complexity: high
+  native_width: 1152
+  native_height: 2048
   width: 720
   height: 1280
   resize_mode: crop  # pad preserves the full composition with letterboxing.
-  seed_base: 20261101
 scheduler:
-  http_concurrency: 16
-  max_active_jobs: 64
+  http_concurrency: 2
+  max_active_jobs: 2
   poll_interval_seconds: 5
 continuity:
   auto_scene_anchors: true

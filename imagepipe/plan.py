@@ -26,8 +26,8 @@ def compile_plan(package_dir: Path, config: ImageConfig, episode_ids: list[str] 
             description=(_frame_description(slot, catalogue, slot_style)
                          if slot.get("purpose") == "first_frame" else _description(slot, slot_style)),
             reference_guide=_reference_guide(reference_ids, catalogue),
-            width=config.generation.width,
-            height=config.generation.height,
+            width=(config.generation.native_width if config.provider == "gpt" else config.generation.width),
+            height=(config.generation.native_height if config.provider == "gpt" else config.generation.height),
         )
         tasks.append(ImageTask(
             asset_id=asset_id,

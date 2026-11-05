@@ -1,8 +1,9 @@
-"""Execute image dependencies against the service's persistent job queue."""
+"""Execute image dependencies through OpenAI images or Qwen's job queue."""
 
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import shutil
 import time
@@ -57,7 +58,8 @@ class ImagePipeline:
         record = self.state["tasks"][task.asset_id]
         target = Path(task.target_path)
         if target.is_file():
-            record.update(status="completed", reused=not bool(record.get("job_id")), path=str(target))
+            record.update(status="completed", reused=not bool(record.get("completed_at") or record.get("job_id")),
+                          path=str(target))
             self._event("reused", task.asset_id)
             return
         await asyncio.gather(*(self.workers[ref] for ref in task.reference_ids))
@@ -74,6 +76,47 @@ class ImagePipeline:
                 self._event("failed", task.asset_id, error=str(error))
 
     async def _generate(self, task: ImageTask, record: dict) -> None:
+        original = self.run_dir / "originals" / f"{task.asset_id}.png"
+        record.setdefault("submitted_at", time.time())
+        if self.config.provider == "gpt":
+            await self._generate_gpt(task, record, original)
+        else:
+            await self._generate_qwen(task, record, original)
+        generation = self.config.generation
+        delivery_started = time.time()
+        dimensions = await asyncio.to_thread(
+            deliver_image, original, Path(task.target_path), generation.width, generation.height, generation.resize_mode,
+        )
+        finished = time.time()
+        record.update(
+            status="completed", completed_at=finished, original=str(original), path=task.target_path, reused=False,
+            delivery_seconds=round(finished - delivery_started, 3),
+            job_wall_seconds=round(finished - record["submitted_at"], 3), **dimensions,
+        )
+        record.pop("error", None)
+        self._event("completed", task.asset_id, job_id=record.get("job_id"), request_id=record.get("request_id"),
+                    job_wall_seconds=record["job_wall_seconds"], **dimensions)
+
+    async def _generate_gpt(self, task: ImageTask, record: dict, original: Path) -> None:
+        # An already saved original can be delivered again without another paid request.
+        if original.is_file():
+            return
+        references = []
+        for ref in task.reference_ids:
+            native = self.run_dir / "originals" / f"{ref}.png"
+            references.append(native if native.is_file() else Path(self.tasks[ref].target_path))
+        record.update(status="submitting", attempts=record["attempts"] + 1, submitted_at=time.time())
+        self._event("submitting", task.asset_id, provider="gpt", mode=task.mode)
+        result = await self.client.submit(task, references)
+        original.parent.mkdir(parents=True, exist_ok=True)
+        original.write_bytes(base64.b64decode(result["data"][0]["b64_json"]))
+        record.update(status="delivering", original=str(original), request_id=result["request_id"],
+                      usage=result.get("usage", {}), model=self.config.generation.model,
+                      quality=result.get("quality", self.config.generation.quality),
+                      api_seconds=round(time.time() - record["submitted_at"], 3))
+        self._event("generated", task.asset_id, request_id=record["request_id"], usage=record["usage"])
+
+    async def _generate_qwen(self, task: ImageTask, record: dict, original: Path) -> None:
         references = [Path(self.tasks[ref].target_path) for ref in task.reference_ids]
         while True:
             if not record.get("job_id"):
@@ -105,21 +148,9 @@ class ImagePipeline:
 
         record.update(status="downloading", remote_completed_at=time.time())
         results = await self._read(self.client.results, job_id)
-        original = self.run_dir / "originals" / f"{task.asset_id}.png"
         download_started = time.time()
         await self._read(self.client.download, results["data"][0]["url"], original)
-        generation = self.config.generation
-        dimensions = await asyncio.to_thread(
-            deliver_image, original, Path(task.target_path), generation.width, generation.height, generation.resize_mode,
-        )
-        finished = time.time()
-        record.update(
-            status="completed", completed_at=finished, original=str(original), path=task.target_path,
-            download_seconds=round(finished - download_started, 3),
-            job_wall_seconds=round(finished - record["submitted_at"], 3), **dimensions,
-        )
-        record.pop("error", None)
-        self._event("completed", task.asset_id, job_id=job_id, job_wall_seconds=record["job_wall_seconds"], **dimensions)
+        record["download_seconds"] = round(time.time() - download_started, 3)
 
     async def _read(self, operation, *args):
         for attempt in range(self.config.scheduler.max_attempts):
@@ -162,6 +193,7 @@ class ImagePipeline:
         return {
             "package_root": self.plan.package_root, "run_dir": str(self.run_dir),
             "started_at": self.state["started_at"], "elapsed_seconds": round(elapsed, 3),
+            "provider": self.config.provider,
             "generation": self.config.generation.model_dump(), "scheduler": self.config.scheduler.model_dump(),
             "counts": dict(Counter(item["status"] for item in records.values())),
             "generated": len(generated), "reused": sum(bool(item.get("reused")) for item in records.values()),
@@ -172,6 +204,7 @@ class ImagePipeline:
 
 def load_run(run_dir: Path) -> tuple[ImagePlan, ImageConfig]:
     data = json.loads((run_dir / "tasks.json").read_text())
+    data["config"].setdefault("provider", "qwen")
     return ImagePlan(
         package_root=data["package_root"],
         tasks=[ImageTask(**task) for task in data["tasks"]],

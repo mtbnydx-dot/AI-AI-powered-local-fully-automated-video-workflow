@@ -56,7 +56,7 @@ class ImageClientTests(unittest.TestCase):
             server.image = references[0].read_bytes()
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
-            config = ImageConfig.model_validate({"api": {
+            config = ImageConfig.model_validate({"provider": "qwen", "api": {
                 "base_url": f"http://127.0.0.1:{server.server_port}",
                 "env_file": str(env_file), "key_name": "IMAGEPIPE_TEST_KEY",
             }})

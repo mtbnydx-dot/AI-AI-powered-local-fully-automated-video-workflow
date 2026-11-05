@@ -22,7 +22,8 @@ def main() -> int:
     commands = parser.add_subparsers(dest="command", required=True)
     start = commands.add_parser("run", help="Fill an episode or season's image slots")
     start.add_argument("package", type=Path)
-    start.add_argument("--config", type=Path, default=Path("configs/imagepipe.yaml"))
+    start.add_argument("--provider", choices=["gpt", "qwen"], help="Image backend (default: gpt)")
+    start.add_argument("--config", type=Path, help="Override the selected provider's YAML config")
     start.add_argument("--output", type=Path)
     start.add_argument("--episodes", type=parse_episode_range, help="Episode range, for example ep01-ep10 or 1-10")
     start.add_argument("--delivery", type=Path, help="Export the selected episodes as a video-ready package after images complete")
@@ -47,16 +48,19 @@ def main() -> int:
         else:
             if args.delivery and not args.episodes:
                 raise ValueError("--delivery requires --episodes")
-            config = ImageConfig.model_validate(yaml.safe_load(args.config.read_text()) or {})
+            config = _load_config(args.config, args.provider)
             config.api.env_file = str(Path(config.api.env_file).resolve())
-            default_output = Path("runs/imagepipe") / args.package.name
+            default_output = Path("runs/imagepipe") / args.package.name / config.provider
             if args.episodes:
                 default_output /= f"{args.episodes[0]}-{args.episodes[-1]}"
             output = (args.output or default_output).resolve()
             batch_path = output / "batch.json"
             batch = json.loads(batch_path.read_text()) if batch_path.exists() else {}
             if (output / "tasks.json").exists():
-                plan, config = load_run(output)
+                plan, saved_config = load_run(output)
+                if saved_config.provider != config.provider:
+                    raise ValueError(f"{output} uses {saved_config.provider}; use resume or choose a different --output")
+                config = saved_config
                 if Path(plan.package_root) != args.package.resolve():
                     raise ValueError(f"{output} belongs to {plan.package_root}; choose a different --output")
                 if batch.get("episode_ids") != args.episodes:
@@ -78,11 +82,19 @@ def main() -> int:
         print(json.dumps(report, ensure_ascii=False, indent=2))
         return 0 if report["success"] else 1
     except KeyboardInterrupt:
-        print("Interrupted. Remote jobs continue; use imagepipe resume with the run directory.", file=sys.stderr)
+        print("Interrupted. Saved images are retained; use imagepipe resume with the run directory.", file=sys.stderr)
         return 130
     except (OSError, ValueError, KeyError) as error:
         print(f"imagepipe: {error}", file=sys.stderr)
         return 1
+
+
+def _load_config(path: Path | None, provider: str | None) -> ImageConfig:
+    path = path or Path("configs/imagepipe_qwen.yaml" if provider == "qwen" else "configs/imagepipe.yaml")
+    config = ImageConfig.model_validate(yaml.safe_load(path.read_text()) or {})
+    if provider and config.provider != provider:
+        raise ValueError(f"{path} selects {config.provider}; choose a config for --provider {provider}")
+    return config
 
 
 if __name__ == "__main__":

@@ -125,6 +125,8 @@ class ImageEpisodeSelectionTests(unittest.TestCase):
         report = json.loads((output / "report.json").read_text())
         self.assertEqual(report["reused"], len(selected.tasks))
         self.assertTrue(report["success"])
+        self.assertEqual(invoke("run", self.package, "--provider", "qwen",
+                                "--output", output, "--episodes", "1-1"), 1)
         self.assertEqual(invoke("run", self.package, "--config", config_path,
                                 "--output", output, "--episodes", "2-2"), 1)
         self.assertFalse((self.package / "episodes/ep02/assets/first_frames/ep02_s001.png").exists())

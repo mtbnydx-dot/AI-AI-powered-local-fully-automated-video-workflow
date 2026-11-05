@@ -13,7 +13,7 @@ flowchart LR
     EXP --> CFG["每集 production.yaml"]
     SEASON --> IP["imagepipe<br/>依赖调度与图片交付"]
     SLOTS --> IP
-    IP <-->|持久任务 API| IMG["在线图片服务"]
+    IP <-->|Images API / Qwen 任务 API| IMG["GPT Image 2.6 Sunburst（默认）<br/>可选本地部署 Qwen Image"]
     IP --> ASSETS["共享参考图 + 每镜首帧"]
     PKG --> VP["videopipe<br/>输入快照与生产状态机"]
     CFG --> VP
@@ -37,8 +37,8 @@ flowchart LR
 | [export.py](../scriptpipe/export.py) | 编译 H3 prompt、人物与资产 ID，导出单集包、图片清单和整季索引 |
 | [batch.py](../scriptpipe/batch.py) | 按集复制剧本和实际图片，保留全剧设定，生成可独立交接的批次包 |
 | [imagepipe/plan.py](../imagepipe/plan.py)、[models.py](../imagepipe/models.py) | 统一单集 / 整季槽位，计算引用依赖，选模板、模式、seed 与路径；检查循环和缺失引用 |
-| [imagepipe/pipeline.py](../imagepipe/pipeline.py) | 等待依赖、控制在途任务数、保存 job ID、续跑、共享图复制与报告 |
-| [imagepipe/client.py](../imagepipe/client.py)、[delivery.py](../imagepipe/delivery.py) | HTTP 提交/轮询/下载；Pillow 等比缩放和居中裁切，写 RGB PNG |
+| [imagepipe/pipeline.py](../imagepipe/pipeline.py) | 等待依赖、控制在途任务数、保存 GPT 原图/request ID/usage 或 Qwen job ID、续跑、共享图复制与报告 |
+| [imagepipe/client.py](../imagepipe/client.py)、[delivery.py](../imagepipe/delivery.py) | GPT 生成/编辑与 Qwen 提交/轮询/下载；Pillow 等比缩放和裁切/留边，写 RGB PNG |
 | [videopipe/inputs.py](../videopipe/inputs.py)、[models.py](../videopipe/models.py) | 输入字段、文件与 API workflow 校验；复制素材、自定义 workflow 和配置，冻结运行 prompt |
 | [videopipe/pipeline.py](../videopipe/pipeline.py) | `Production` 状态机、两个线程池、生成预算、选片、超分、拼接、批准与交付 |
 | [backends/comfyui.py](../videopipe/backends/comfyui.py)、[backends/review.py](../videopipe/backends/review.py) | ComfyUI 参数填充和任务恢复；Qwen 请求与结果解析。CPU 后端供本地流程验证 |
@@ -116,7 +116,7 @@ B200 配置使用 7 个生成 worker、6 个审核 worker。生成与超分通�
 
 | 文件 | 谁读取 | 决定什么 |
 | --- | --- | --- |
-| [configs/imagepipe.yaml](../configs/imagepipe.yaml) | `imagepipe run` | 图片服务、尺寸、步数、任务并发和可选引用补充 |
+| [configs/imagepipe.yaml](../configs/imagepipe.yaml)、[imagepipe_qwen.yaml](../configs/imagepipe_qwen.yaml) | `imagepipe run --provider gpt\|qwen` | GPT 默认质量/原生尺寸、Qwen 步数、交付尺寸、任务并发和可选引用补充 |
 | [configs/b200.yaml](../configs/b200.yaml) | `videopipe`；`scriptpipe` 默认导出基底 | ComfyUI 实例、Qwen、ASR、媒体输出和视频预算 |
 | [configs/cpu.yaml](../configs/cpu.yaml) | `videopipe` | CPU 预览与技术审核，验证流程用 |
 | 导出的 `production.yaml` | 每集视频运行 | 从选定基底复制，并由 exporter 写入 576×1024、24fps；超分等其余参数保留 |

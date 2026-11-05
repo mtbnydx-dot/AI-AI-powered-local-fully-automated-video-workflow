@@ -98,7 +98,7 @@ async def probe(config: ImageConfig, output: Path) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", type=Path, default=Path("configs/imagepipe.yaml"))
+    parser.add_argument("--config", type=Path, default=Path("configs/imagepipe_qwen.yaml"))
     parser.add_argument("--output", type=Path, default=Path("tmp/qwen_image_api_probe_20261103"))
     args = parser.parse_args()
     config = ImageConfig.model_validate(yaml.safe_load(args.config.read_text()) or {})

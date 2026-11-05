@@ -1,4 +1,4 @@
-"""Async client for the persistent Qwen image job API."""
+"""Async client for OpenAI images and the persistent Qwen image job API."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import urljoin, urlsplit
 
 import httpx
+from PIL import Image
 
 if TYPE_CHECKING:
     from .models import ImageConfig, ImageTask
@@ -39,6 +40,8 @@ class ImageClient:
         await self.http.aclose()
 
     async def submit(self, task: ImageTask, references: list[Path]) -> dict:
+        if self.config.provider == "gpt":
+            return await self._submit_gpt(task, references)
         generation = self.config.generation
         # The API requires 32-pixel multiples; delivery restores the configured size.
         native_width = max(256, ((generation.width + 31) // 32) * 32)
@@ -69,6 +72,27 @@ class ImageClient:
                 )
         return response.json()
 
+    async def _submit_gpt(self, task: ImageTask, references: list[Path]) -> dict:
+        mime_types = _validate_gpt_inputs(task.prompt, references, self.config.api.max_reference_images)
+        generation = self.config.generation
+        payload = {
+            "model": generation.model, "prompt": task.prompt,
+            "size": f"{generation.native_width}x{generation.native_height}",
+            "quality": generation.quality, "complexity": generation.complexity,
+            "n": 1, "output_format": "png", "background": "opaque",
+        }
+        if references:
+            with ExitStack() as stack:
+                files = [("image[]", (path.name, stack.enter_context(path.open("rb")), mime))
+                         for path, mime in zip(references, mime_types)]
+                response = await self._request("POST", "/v1/images/edits",
+                                               data={k: str(v) for k, v in payload.items()}, files=files)
+        else:
+            response = await self._request("POST", "/v1/images/generations", json=payload)
+        result = response.json()
+        result["request_id"] = response.headers.get("x-request-id")
+        return result
+
     async def status(self, job_id: str) -> dict:
         response = await self._request("GET", f"/v1/images/jobs/{job_id}")
         return response.json()
@@ -98,6 +122,22 @@ class ImageClient:
                 request=response.request, response=response,
             )
         return response
+
+
+def _validate_gpt_inputs(prompt: str, references: list[Path], limit: int) -> list[str]:
+    if not 1 <= len(prompt) <= 32000:
+        raise ValueError("GPT Image prompt must contain 1–32000 characters")
+    if len(references) > limit:
+        raise ValueError(f"GPT Image reference count exceeds configured limit {limit}")
+    mime_types = []
+    for path in references:
+        if path.stat().st_size >= 50_000_000:
+            raise ValueError(f"GPT Image reference must be smaller than 50 MB: {path}")
+        with Image.open(path) as image:
+            if image.format not in {"PNG", "JPEG", "WEBP"}:
+                raise ValueError(f"GPT Image reference must be PNG, JPEG or WebP: {path}")
+            mime_types.append(Image.MIME[image.format])
+    return mime_types
 
 
 def _load_key(env_file: Path, key_name: str) -> str:

@@ -82,16 +82,23 @@ flowchart TD
     I5 --> I6{"参考图均 completed？"}
     I6 -->|否| I7["本任务 blocked<br/>独立任务继续"]
     I6 -->|是| I16["取得在途窗口，持有至本任务结束"]
-    I16 --> I8["恢复已有 job_id<br/>或提交并保存 job_id"]
+    I16 --> P{"图片后端"}
+    P -->|GPT，默认| G["复用已保存原图<br/>或等待 generations / edits 返回"]
+    G -->|成功| G1["保存 base64 原图、request ID 和 usage"]
+    G -->|请求异常| I11
+    G1 --> D["按交付尺寸缩放 / 裁切为 RGB PNG"]
+    P -->|Qwen| I8["恢复已有 job_id<br/>或提交并保存 job_id"]
     I8 --> I9["轮询远端任务"]
     I9 -->|排队或执行中| I9
     I9 -->|failed 或 cancelled| I10{"提交次数仍小于 max_attempts？"}
     I10 -->|是| I8
     I10 -->|否| I11["任务 failed"]
-    I9 -->|completed| I12["取第一个结果，下载到 originals<br/>按配置尺寸缩放、居中裁切为 RGB PNG"]
+    I9 -->|completed| I12["取第一个结果，下载到 originals"]
     I8 -->|提交异常| I11
     I12 -->|下载或交付失败| I11
-    I12 --> I13["写入槽位路径，任务 completed<br/>后续依赖可继续"]
+    I12 --> D
+    D -->|交付失败| I11
+    D --> I13["写入槽位路径，任务 completed<br/>后续依赖可继续"]
     I4 --> I14["所有任务结束后<br/>复制共享参考图到单集路径"]
     I7 --> I14
     I11 --> I14
@@ -110,15 +117,17 @@ flowchart TD
 | 地点、道具 | 读取清单中的引用；导出器将 `reference_prop_ids` 转为道具资产引用，可形成道具派生关系 |
 | 镜头首帧 | 组合槽位中的人物、地点、道具引用；`continuity.sets` 可指定某张首帧作为同组其他首帧的布景锚点，`additional_reference_assets` 可补充引用 |
 
-引用去重后按重要性排序，取 `api.max_reference_images` 配置的数量（默认 10）。剧本的 `reference_priority` 按人物、地点或道具 ID 指定重要性，图片配置的 `continuity.reference_priority` 可按首帧资产 ID 指定参考资产顺序；其余引用保留原有顺序。排序后的列表对应实际上传和 prompt 中的编号。无引用使用文生图；只有一张引用的服装/道具派生使用编辑接口；其余有引用的任务使用参考生成接口。每个任务请求 `n=1`，没有另设图片视觉审核或多候选选图步骤。
+引用去重后按重要性排序，取 `api.max_reference_images` 配置的数量（GPT 默认 16、Qwen 默认 10）。剧本的 `reference_priority` 按人物、地点或道具 ID 指定重要性，图片配置的 `continuity.reference_priority` 可按首帧资产 ID 指定参考资产顺序；其余引用保留原有顺序。排序后的列表对应实际上传和 prompt 中的编号。GPT 无引用走 `/v1/images/generations`，所有有引用任务走 `/v1/images/edits`，按顺序上传 `image[]`；Qwen 保留原 jobs、edits、references 接口。每个任务请求 `n=1`，沿用原有图片交付流程。
 
 ### 调度、尺寸与恢复
 
-默认 HTTP 并发为 16、在途任务窗口为 64、轮询间隔为 5 秒。一个任务的依赖完成并落盘后即可推进；在途窗口覆盖提交、轮询、下载和交付。远端任务 `failed` / `cancelled` 时清除 job ID，在 `max_attempts`（默认 3）内重新提交；查询、结果读取和下载另有 HTTP 重试。提交异常会记录为任务失败。存在 job ID 时续跑继续查询该任务；目标文件已经存在时直接复用。
+GPT 默认 HTTP 并发和在途窗口均为 2，请求超时 900 秒。一个任务的依赖完成并落盘后即可推进；使用本运行的原生参考图，有待交付原图时直接继续交付。每次生成请求提交一次，保存 request ID、usage 和原图；请求异常记录为失败，resume 从已保存的结果继续。目标文件已经存在时直接复用。
 
-图片交付尺寸由 `generation.width/height` 决定，当前默认和 `configs/imagepipe.yaml` 均为 720×1280。提交时宽高向上对齐 32 像素且至少为 256，因此默认请求尺寸为 736×1280；原图保存后，交付器按 `generation.resize_mode` 处理：`crop` 居中裁切，`pad` 等比缩放并留黑边，统一保存 RGB PNG。图片尺寸与视频镜头的生成画布分别配置。
+Qwen 的 HTTP 并发为 16、在途窗口为 64、轮询间隔为 5 秒。远端任务 `failed` / `cancelled` 时清除 job ID，在 `max_attempts`（默认 3）内重新提交；查询、结果读取和下载另有 HTTP 重试。提交异常会记录为任务失败。存在 job ID 时续跑继续查询该任务。
 
-运行目录保存 `tasks.json`（最终 prompt、引用、seed、路径、配置）、`state.json`、`events.jsonl`、`originals/` 和 `report.json`。`imagepipe resume <运行目录>` 读取保存的计划和配置；再次 `run` 到已有 `tasks.json` 的目录也会复用它们，并核对包目录是否一致。所有生成任务 `completed` 且参考图复制无缺项时，报告的 `success` 才为 `true`。
+图片交付尺寸由 `generation.width/height` 决定，默认 720×1280。GPT Image 2.6 Sunburst 使用 `quality=max`、`complexity=high`，原生尺寸由 `native_width/native_height` 设置，默认 1152×2048；prompt 画布同步使用原生尺寸。Qwen 按交付宽高向上对齐 32 像素且至少为 256，默认请求 736×1280，保留 steps/seed。原图保存后，交付器按 `generation.resize_mode` 处理：`crop` 居中裁切，`pad` 等比缩放并留黑边，统一保存 RGB PNG。图片尺寸与视频镜头的生成画布分别配置。
+
+运行目录保存 `tasks.json`（最终 prompt、引用、seed、路径、后端及配置）、`state.json`、`events.jsonl`、`originals/` 和 `report.json`。seed 仅随 Qwen 请求发送。`imagepipe resume <运行目录>` 读取保存的计划和配置，旧记录按 Qwen 恢复；再次 `run` 到已有 `tasks.json` 的目录也会复用它们，并核对后端、包目录和集范围。所有生成任务 `completed` 且参考图复制无缺项时，报告的 `success` 才为 `true`。
 
 图片阶段写入资产与自身运行记录，全剧目录保留文字导出的状态快照。指定 `--episodes ep01-ep10 --delivery <批次目录>` 时，只处理这些集的首帧及引用依赖，再复制成独立视频输入包；后续批次复用全剧目录中的已有图片。批次清单标记 `images_ready`；全剧仍有待修文字问题时保留相应状态。交接时查看图片运行报告及槽位文件；视频入口会检查所引用的文件是否存在。具体命令见 [分批运行](usage.md#全剧文本分批补图与交付)。
 

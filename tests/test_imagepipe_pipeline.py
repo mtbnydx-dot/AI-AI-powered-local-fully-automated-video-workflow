@@ -72,6 +72,7 @@ class ImagePipelineTests(unittest.TestCase):
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
             config = ImageConfig.model_validate({
+                "provider": "qwen",
                 "api": {"base_url": f"http://127.0.0.1:{server.server_port}",
                         "env_file": str(env), "key_name": "IMAGEPIPE_PIPELINE_TEST_KEY"},
                 "generation": {"width": 18, "height": 32},
