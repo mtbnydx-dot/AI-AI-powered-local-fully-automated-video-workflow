@@ -6,7 +6,7 @@ import json
 import math
 from pathlib import Path
 
-from .llm import DEFAULT_ENDPOINT, DEFAULT_KEY_NAME, DEFAULT_MODEL, GLMClient, load_key
+from .llm import DEFAULT_CONCURRENCY, DEFAULT_ENDPOINT, DEFAULT_KEY_NAME, DEFAULT_MODEL, GLMClient, load_key
 
 
 def main() -> None:
@@ -23,7 +23,8 @@ def main() -> None:
                         help="Long-form runtime target per episode; scene/shot counts follow the story (default: 5)")
     parser.add_argument("--delivery", type=Path, help="Long-form handoff directory, e.g. /data/season")
     parser.add_argument("--stop-after", choices=("season", "plans", "drafts", "review"), help="Save the selected long-form stage and exit")
-    parser.add_argument("--concurrency", type=int, default=4)
+    parser.add_argument("--concurrency", type=int, default=DEFAULT_CONCURRENCY,
+                        help="Maximum simultaneous model requests (default: 15)")
     parser.add_argument("--repair-rounds", type=int, default=2)
     parser.add_argument("--reasoning-effort", choices=("low", "high", "max"), default="high")
     parser.add_argument("--review-reasoning-effort", choices=("low", "high", "max"),
