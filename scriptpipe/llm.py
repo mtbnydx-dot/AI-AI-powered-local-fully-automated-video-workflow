@@ -17,6 +17,7 @@ DEFAULT_ENDPOINT = "https://ark.cn-beijing.volces.com/api/coding/v3"
 DEFAULT_MODEL = "deepseek-v4.1-flash"
 DEFAULT_KEY_NAME = "DEEPSEEK-KEY"
 DEFAULT_CONCURRENCY = 20
+DEFAULT_MAX_TOKENS = 393216
 
 
 def write_json(path: Path, value: Any) -> None:
@@ -79,7 +80,7 @@ class _QuotaExceeded(Exception):
 class GLMClient:
     def __init__(self, key: str, log_dir: Path, endpoint: str = DEFAULT_ENDPOINT,
                  model: str = DEFAULT_MODEL, concurrency: int = DEFAULT_CONCURRENCY,
-                 reasoning_effort: str = "high", max_tokens: int = 65536):
+                 reasoning_effort: str = "high", max_tokens: int = DEFAULT_MAX_TOKENS):
         self.key = key
         self.log_dir = log_dir
         self.endpoint = endpoint.rstrip("/")

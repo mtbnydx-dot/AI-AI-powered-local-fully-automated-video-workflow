@@ -31,7 +31,7 @@ async def probe(args):
                 "small_state_tracking", "Return only JSON with location (one of 桌上, 林青手中, 周宁手中), last_holder (a person's name), and ok=true. Read the events in order.",
                 {"events": ["林青把蓝色盒子交给周宁。", "周宁把蓝色盒子放到会议室桌上。", "林青离开会议室。"],
                  "question": "蓝色盒子现在在哪里，谁最后持有它？"},
-                max_tokens=32768, temperature=0.7,
+                temperature=0.7,
             ), timeout=120)
             report["result"] = result
             report["success"] = result == {"location": "桌上", "last_holder": "周宁", "ok": True}

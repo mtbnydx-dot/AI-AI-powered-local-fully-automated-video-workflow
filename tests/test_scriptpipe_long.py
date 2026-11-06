@@ -189,6 +189,15 @@ class LongScriptTests(unittest.TestCase):
             self.assertIn(anchor, next(task for task in frames if task.asset_id.endswith("s001")).reference_ids)
             self.assertNotIn(anchor, next(task for task in frames if task.asset_id == anchor).reference_ids)
 
+            client.calls.clear()
+            asyncio.run(run_long(source, root / "run", client, episode_count=1))
+            self.assertEqual(client.calls, [])
+
+            (root / "run/reviews/ep01_1.json").unlink()
+            client.calls.clear()
+            asyncio.run(run_long(source, root / "run", client, episode_count=1))
+            self.assertEqual([name for name, _ in client.calls], ["ep01_review_1"])
+
     def test_all_text_stages_inherit_high_including_repair_and_review(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

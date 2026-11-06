@@ -6,7 +6,7 @@ import json
 import math
 from pathlib import Path
 
-from .llm import DEFAULT_CONCURRENCY, DEFAULT_ENDPOINT, DEFAULT_KEY_NAME, DEFAULT_MODEL, GLMClient, load_key
+from .llm import DEFAULT_CONCURRENCY, DEFAULT_ENDPOINT, DEFAULT_KEY_NAME, DEFAULT_MAX_TOKENS, DEFAULT_MODEL, GLMClient, load_key
 
 
 def main() -> None:
@@ -29,8 +29,8 @@ def main() -> None:
     parser.add_argument("--reasoning-effort", choices=("low", "high", "max"), default="high")
     parser.add_argument("--review-reasoning-effort", choices=("low", "high", "max"),
                         help="Defaults to --reasoning-effort")
-    parser.add_argument("--max-tokens", type=int, default=65536,
-                        help="Per-call budget shared by thinking and final output (default: 65536)")
+    parser.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_TOKENS,
+                        help=f"Per-call budget shared by thinking and final output (default: {DEFAULT_MAX_TOKENS})")
     parser.add_argument("--production-config", type=Path)
     parser.add_argument("--notes", type=Path, help="Optional source-specific editorial notes")
     args = parser.parse_args()

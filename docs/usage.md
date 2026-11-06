@@ -12,7 +12,7 @@ source .venv/bin/activate
 python -m pip install -e '.[asr]'
 ```
 
-`scriptpipe` 默认使用 Ark `deepseek-v4.1-flash`、环境变量或 `.env` 中的 `DEEPSEEK-KEY`，endpoint 为 `https://ark.cn-beijing.volces.com/api/coding/v3`。请求显式开启 thinking；规划、写作、修复、审阅均继承 `--reasoning-effort high`。`--model glm-5.3` 自动选择 `GLMKEY`，也可通过 `--key-name` 指定。`--max-tokens` 默认 65536，包含思考与最终输出的预算。`imagepipe` 默认使用官方 GPT Image 2.6 Sunburst，读取环境变量或 `.env` 中的 `OPENAI`，配置见 [imagepipe.yaml](../configs/imagepipe.yaml)。`--provider qwen` 使用原本地部署服务，键名为 `QWEN-IMAGE`，配置见 [imagepipe_qwen.yaml](../configs/imagepipe_qwen.yaml)。本地视频服务准备见 [部署](deployment.md)。
+`scriptpipe` 默认使用 Ark `deepseek-v4.1-flash`、环境变量或 `.env` 中的 `DEEPSEEK-KEY`，endpoint 为 `https://ark.cn-beijing.volces.com/api/coding/v3`。请求显式开启 thinking；规划、写作、修复、审阅均继承 `--reasoning-effort high`。`--model glm-5.3` 自动选择 `GLMKEY`，也可通过 `--key-name` 指定。`--max-tokens` 默认 393216，包含思考与最终输出的预算。`imagepipe` 默认使用官方 GPT Image 2.6 Sunburst，读取环境变量或 `.env` 中的 `OPENAI`，配置见 [imagepipe.yaml](../configs/imagepipe.yaml)。`--provider qwen` 使用原本地部署服务，键名为 `QWEN-IMAGE`，配置见 [imagepipe_qwen.yaml](../configs/imagepipe_qwen.yaml)。本地视频服务准备见 [部署](deployment.md)。
 
 ## 顺序运行
 

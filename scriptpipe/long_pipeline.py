@@ -214,7 +214,22 @@ async def run_long(source_path: Path, out: Path, client: GLMClient, *,
 
         async def review_episode(episode):
             plan = next(item for item in detailed_plans if item["id"] == episode["id"])
-            for cycle in range(repair_rounds + 1):
+            payload = {**common, "season": season, "episode_plan": plan,
+                       "episode": compact_episode(episode)}
+            start_cycle = 0
+            for cycle in reversed(range(repair_rounds + 1)):
+                review_path = out / "reviews" / f"{episode['id']}_{cycle}.json"
+                input_path = out / "review_inputs" / review_path.name
+                if review_path.exists() and input_path.exists() and read_json(input_path) == payload:
+                    start_cycle = cycle
+                    break
+                if cycle:
+                    before = out / "drafts" / f"{episode['id']}.before_local_{cycle - 1}.json"
+                    patch = out / "patches" / f"{episode['id']}_local_{cycle - 1}.json"
+                    if before.exists() and patch.exists() and merge_episode_repair(read_json(before), read_json(patch)) == episode:
+                        start_cycle = cycle
+                        break
+            for cycle in range(start_cycle, repair_rounds + 1):
                 review_path = out / "reviews" / f"{episode['id']}_{cycle}.json"
                 review = await reviewed(f"{episode['id']}_review_{cycle}", "long_episode_review_zh",
                                         {**common, "season": season, "episode_plan": plan,
