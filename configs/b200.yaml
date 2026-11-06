@@ -40,7 +40,7 @@ media:
 script:
   language: Chinese
   non_diegetic_music: N/A
-  on_screen_text: Include story-relevant writing. Subtitles and watermarks follow the editor's delivery requirements.
+  on_screen_text: Include story-relevant writing. But do not generate subtitles.
 workers: 7
 max_attempts: 3
 human_approval: false
